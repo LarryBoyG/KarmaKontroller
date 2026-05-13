@@ -1,0 +1,69 @@
+#!/system/bin/sh
+
+LOG=/data/karma-mapbox-proxy.log
+START_LOG=/data/karma-mapbox-proxy-start.log
+DATA_DIR=/data/karma-mapbox-proxy
+HOSTS_FILE=${DATA_DIR}/hosts.txt
+DNS_FILE=${DATA_DIR}/dns.txt
+UPSTREAM_FILE=${DATA_DIR}/upstream.txt
+
+echo "--- start attempt $(date) ---" >> ${START_LOG}
+
+mkdir -p ${DATA_DIR}
+chmod 0755 ${DATA_DIR}
+
+if [ ! -f ${HOSTS_FILE} ]; then
+    cat > ${HOSTS_FILE} <<'EOF'
+127.0.0.1        localhost
+127.0.0.1        api.mapbox.com
+127.0.0.1        api.tiles.mapbox.com
+127.0.0.1        a.tiles.mapbox.com
+127.0.0.1        b.tiles.mapbox.com
+127.0.0.1        c.tiles.mapbox.com
+127.0.0.1        d.tiles.mapbox.com
+127.0.0.1        events.mapbox.com
+127.0.0.1        www.mapbox.com
+127.0.0.1        mapbox.com
+EOF
+    chmod 0644 ${HOSTS_FILE}
+    echo "created default ${HOSTS_FILE}" >> ${START_LOG}
+fi
+
+if [ ! -f ${DNS_FILE} ]; then
+    cat > ${DNS_FILE} <<'EOF'
+1.1.1.1
+8.8.8.8
+9.9.9.9
+EOF
+    chmod 0644 ${DNS_FILE}
+    echo "created default ${DNS_FILE}" >> ${START_LOG}
+fi
+
+if [ ! -f ${UPSTREAM_FILE} ]; then
+    cat > ${UPSTREAM_FILE} <<'EOF'
+# Optional PC proxy upstream.
+# Leave blank, direct, none, or mapbox to let the controller proxy reach Mapbox itself.
+# To use the Windows PC agent, replace this file with your PC LAN address:
+# YOUR_PC_IP:443
+EOF
+    chmod 0644 ${UPSTREAM_FILE}
+    echo "created default ${UPSTREAM_FILE}" >> ${START_LOG}
+fi
+
+if [ ! -x /system/bin/karma-mapbox-proxy ]; then
+    echo "proxy binary missing or not executable" >> ${START_LOG}
+    exit 1
+fi
+
+if /system/bin/ps | /system/bin/grep karma-mapbox-proxy | /system/bin/grep -v grep >/dev/null 2>&1; then
+    echo "proxy already running" >> ${START_LOG}
+    exit 0
+fi
+
+echo "starting proxy" >> ${START_LOG}
+export KARMA_MAPBOX_HOSTS_FILE=${HOSTS_FILE}
+export KARMA_MAPBOX_DNS_FILE=${DNS_FILE}
+export KARMA_MAPBOX_UPSTREAM_FILE=${UPSTREAM_FILE}
+/system/bin/karma-mapbox-proxy >> ${LOG} 2>&1 &
+sleep 1
+/system/bin/ps | /system/bin/grep karma-mapbox-proxy | /system/bin/grep -v grep >> ${START_LOG} 2>&1

@@ -1,0 +1,59 @@
+# Build outputs
+/KarmaKontroller.exe
+/KarmaKontroller-Setup.exe
+/KarmaKontroller-release/
+/installer/build/
+*.exe
+*.exe~
+*.exe.*
+*.dll
+*.sys
+*.cat
+*.zip
+
+# Firmware images, backups, and extracted filesystems
+*.img
+*.img.tmp
+*.sparse
+*.raw
+/Backup/
+/Patch/
+/system_extracted*/
+/data_extracted*/
+
+# Local toolchains and caches
+/.gocache*/
+/tools/
+__pycache__/
+*.pyc
+
+# Logs and smoke-test output
+*.log
+*.out
+*.err
+*.tmp
+/KarmaKontroller.previous-*.exe
+/karma-mapbox-pc-agent.exe*
+/karma-mapbox-proxy-armv7*
+/karma-file-browser-armv7*
+/karma_mapbox_proxy/assets/karma-mapbox-proxy
+/karma_mapbox_proxy/assets/karma-file-browser
+
+# Third-party or redistribution-sensitive tool bundles.
+# Do not publish these unless you have verified redistribution rights.
+/cmdUpdTool2/
+/mapbox_gl_native_4_2_2/
+/buckhorn_apktool/
+
+# Locally generated certificate material from experiments.
+# The checked-in application certs live under karma_mapbox_proxy/certs.
+/mapbox_proxy_certs/
+*.csr
+*.srl
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

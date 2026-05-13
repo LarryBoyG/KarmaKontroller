@@ -1,0 +1,21 @@
+#!/system/bin/sh
+
+LOG=/data/karma-file-browser.log
+START_LOG=/data/karma-file-browser-start.log
+
+echo "--- start attempt $(date) ---" >> ${START_LOG}
+
+if [ ! -x /system/bin/karma-file-browser ]; then
+    echo "file browser binary missing or not executable" >> ${START_LOG}
+    exit 1
+fi
+
+if /system/bin/ps | /system/bin/grep karma-file-browser | /system/bin/grep -v grep >/dev/null 2>&1; then
+    echo "file browser already running" >> ${START_LOG}
+    exit 0
+fi
+
+echo "starting file browser on port 8080" >> ${START_LOG}
+/system/bin/karma-file-browser >> ${LOG} 2>&1 &
+sleep 1
+/system/bin/ps | /system/bin/grep karma-file-browser | /system/bin/grep -v grep >> ${START_LOG} 2>&1

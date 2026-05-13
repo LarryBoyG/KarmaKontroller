@@ -1,0 +1,6 @@
+# Optional PC proxy upstream for Karma Mapbox repair.
+#
+# Leave blank, direct, none, or mapbox to let the controller proxy reach Mapbox itself.
+# To use the Windows PC agent, put your PC LAN address here, for example:
+#
+# YOUR_PC_IP:443
