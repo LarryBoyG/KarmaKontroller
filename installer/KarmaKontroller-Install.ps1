@@ -55,7 +55,10 @@ try {
     Expand-Archive -LiteralPath $zipPath -DestinationPath $tempDir -Force
     $payloadDir = Join-Path $tempDir "payload"
     if (-not (Test-Path -LiteralPath $payloadDir)) {
-        throw "Installer payload folder was not found."
+        $payloadDir = $tempDir
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $payloadDir "KarmaKontroller.exe"))) {
+        throw "Installer payload is missing KarmaKontroller.exe."
     }
 
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -91,6 +94,7 @@ try {
 
     $driverReadme = Join-Path $installDir "cmdUpdTool2\Drivers\README-Unsigned-Driver-Test-Mode.txt"
     if (-not (Test-Path -LiteralPath $driverReadme)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $driverReadme) -Force | Out-Null
         "See the KarmaKontroller documentation for unsigned driver test mode instructions." | Set-Content -LiteralPath $driverReadme -Encoding ASCII
     }
 
@@ -105,6 +109,14 @@ try {
             Start-Process -FilePath (Join-Path $installDir "KarmaKontroller.exe") -WorkingDirectory $installDir
         }
     }
+} catch {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Install failed:`r`n`r`n" + $_.Exception.Message,
+        "KarmaKontroller Setup",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+    exit 1
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }

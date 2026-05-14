@@ -8,7 +8,7 @@ It provides:
 - A patching GUI for user-supplied `system.img` files.
 - Controller backup and flash helpers that call the Amlogic `update.exe` tool.
 - A controller-side data-store path for proxy configuration, so a group release does not need anyone's personal IP address baked into `system.img`.
-- A small controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
+- A button-gated controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
 
 This project is not affiliated with, endorsed by, or supported by GoPro, Mapbox, Amlogic, or any drone manufacturer.
 
@@ -16,7 +16,9 @@ This project is not affiliated with, endorsed by, or supported by GoPro, Mapbox,
 
 This tool patches and flashes controller firmware partitions. A bad image, interrupted flash, dead battery, driver problem, or unplugged USB cable can leave a controller unrecoverable.
 
-Use this only on hardware you own or are authorized to service. Make complete backups before flashing. Keep the controller powered and connected until operations finish.
+Use this only on hardware you own or are authorized to service. Make complete backups before flashing, including `dataBU.img`. Keep the controller powered and connected until operations finish.
+
+The controller OS depends on a valid `/data` partition. If `/data` is wiped or zeroed, reflashing only `system.img` may still leave the controller stuck at a boot logo or black screen. Current builds require a valid raw ext4 `dataBU.img` backup before system flashing and include a separate Data restore flow for recovery.
 
 KarmaKontroller does not include firmware images. End users must provide their own controller images.
 
@@ -24,7 +26,7 @@ KarmaKontroller does not include firmware images. End users must provide their o
 
 The original offline map flow fails because the controller's old Android/Mapbox stack can no longer complete the modern HTTPS/API path cleanly. The patch adds a compatibility layer:
 
-1. `system.img` is patched to install a controller-side Mapbox proxy launcher, file browser, trusted proxy certificate, and startup hook.
+1. `system.img` is patched to install a controller-side Mapbox proxy launcher, button-gated file browser, trusted proxy certificate, and startup hook.
 2. `data.img` is used for mutable configuration at `/data/karma-mapbox-proxy/`.
 3. The PC tray agent listens on the local network, usually on port `443`.
 4. The controller reads `/data/karma-mapbox-proxy/upstream.txt` to learn which PC IP/port to use.
@@ -40,7 +42,7 @@ The original offline map flow fails because the controller's old Android/Mapbox 
 
 Generated release folders, firmware images, extracted filesystems, logs, and third-party binary tool bundles are intentionally ignored by Git.
 
-The source repository also omits generated controller-side binaries such as `karma_mapbox_proxy/assets/karma-mapbox-proxy` and `karma_mapbox_proxy/assets/karma-file-browser`. Build or add those only when preparing a release package.
+The source repository also omits generated controller-side binaries such as `karma_mapbox_proxy/assets/karma-mapbox-proxy`, `karma_mapbox_proxy/assets/karma-file-browser`, and `karma_mapbox_proxy/assets/karma-button-gate`. Build or add those only when preparing a release package.
 
 ## Requirements
 
@@ -64,7 +66,7 @@ go build -ldflags="-H windowsgui" -o ..\KarmaKontroller.exe .
 For local release packaging, create a `KarmaKontroller-release` folder containing:
 
 - `KarmaKontroller.exe`
-- `assets\`, including freshly built controller-side `karma-mapbox-proxy` and `karma-file-browser` binaries
+- `assets\`, including freshly built controller-side `karma-mapbox-proxy`, `karma-file-browser`, and `karma-button-gate` binaries
 - optional `cmdUpdTool2\` if you are allowed to distribute the update tool bundle
 - `Backup\` and `Patch\` folders
 
@@ -76,8 +78,9 @@ Then rebuild the installer from the files in `installer/`. The current bootstrap
 2. Use the tray menu to start or stop the proxy.
 3. Use `Patch / Flash / Backup...` to open the image tools window.
 4. Patch a user-provided `system.img`.
-5. Back up controller partitions before flashing.
+5. Back up controller partitions before flashing. Keep `Data` selected.
 6. Flash only after confirming the backup and patched image are correct.
+7. Use `Restore Data` only with a valid `dataBU.img` from the same controller.
 
 The tray tooltip/menu reports whether the app can see the controller on the local Wi-Fi network. USB backup and flash are separate: the controller must also be visible to `update.exe` in update mode.
 
@@ -96,6 +99,12 @@ Important files:
 - `dns.txt` - optional DNS override list.
 
 This is what keeps the group patch flexible: releases should not hardcode one person's local IP address into `system.img`.
+
+The controller file browser is off by default. Hold the controller's Shutter and Mode buttons during boot to open it for a short maintenance window on port `8080`.
+
+The controller file browser only allows write, edit, upload, create, and delete actions inside `/data/karma-mapbox-proxy/`. Other `/data` paths can be browsed for diagnostics but are not exposed as writable through the browser.
+
+This button-gated behavior replaced an earlier always-on test build because automatic exposure of the file browser could trigger a controller error during normal boot or drone pairing.
 
 ## Driver Notes
 

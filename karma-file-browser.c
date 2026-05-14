@@ -23,6 +23,7 @@
 #define IO_BUF 16384
 #define MAX_BODY (32 * 1024 * 1024)
 #define MAX_EDIT (1024 * 1024)
+#define WRITABLE_DATA_DIR "/data/karma-mapbox-proxy"
 
 static int g_log_fd = -1;
 
@@ -107,8 +108,9 @@ static bool ascii_starts_with_ci(const char *s, const char *prefix) {
     return true;
 }
 
-static bool is_under_data(const char *path) {
-    return strcmp(path, "/data") == 0 || strncmp(path, "/data/", 6) == 0;
+static bool is_writable_path(const char *path) {
+    return strcmp(path, WRITABLE_DATA_DIR) == 0 ||
+           strncmp(path, WRITABLE_DATA_DIR "/", strlen(WRITABLE_DATA_DIR) + 1) == 0;
 }
 
 static bool is_safe_name(const char *name) {
@@ -430,7 +432,7 @@ static void parent_url(char *out, size_t out_sz, const char *path) {
 }
 
 static void send_rw_denied(int fd) {
-    send_error(fd, 403, "Forbidden", "Write operations are only enabled under /data.");
+    send_error(fd, 403, "Forbidden", "Write operations are only enabled under /data/karma-mapbox-proxy.");
 }
 
 static bool extract_filename(const char *headers, char *filename, size_t filename_sz) {
@@ -536,7 +538,7 @@ static bool boundary_from_content_type(const char *content_type, char *boundary,
 
 static void handle_upload(int fd, const char *dir, const char *headers,
                           const unsigned char *body, size_t body_len) {
-    if (!is_under_data(dir)) {
+    if (!is_writable_path(dir)) {
         send_rw_denied(fd);
         return;
     }
@@ -627,7 +629,7 @@ static void handle_upload(int fd, const char *dir, const char *headers,
 }
 
 static void handle_mkdir(int fd, const char *dir, const char *body, size_t body_len) {
-    if (!is_under_data(dir)) {
+    if (!is_writable_path(dir)) {
         send_rw_denied(fd);
         return;
     }
@@ -649,7 +651,7 @@ static void handle_mkdir(int fd, const char *dir, const char *body, size_t body_
 }
 
 static void handle_create_file(int fd, const char *dir, const char *body, size_t body_len) {
-    if (!is_under_data(dir)) {
+    if (!is_writable_path(dir)) {
         send_rw_denied(fd);
         return;
     }
@@ -675,7 +677,7 @@ static void handle_create_file(int fd, const char *dir, const char *body, size_t
 }
 
 static void handle_save_file(int fd, const char *path, const char *body, size_t body_len) {
-    if (!is_under_data(path)) {
+    if (!is_writable_path(path)) {
         send_rw_denied(fd);
         return;
     }
@@ -703,7 +705,7 @@ static void handle_save_file(int fd, const char *path, const char *body, size_t 
 }
 
 static void handle_delete(int fd, const char *path) {
-    if (!is_under_data(path) || strcmp(path, "/data") == 0) {
+    if (!is_writable_path(path) || strcmp(path, WRITABLE_DATA_DIR) == 0) {
         send_rw_denied(fd);
         return;
     }
@@ -835,7 +837,7 @@ static void serve_directory(int fd, const char *path, bool head_only) {
         send_error(fd, 403, "Forbidden", strerror(errno));
         return;
     }
-    bool writable = is_under_data(path);
+    bool writable = is_writable_path(path);
 
     sendf(fd,
           "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n");
@@ -941,7 +943,7 @@ static void serve_directory(int fd, const char *path, bool head_only) {
         sendf(fd, "</td>");
         if (writable) {
             sendf(fd, "<td>");
-            if (have_stat && is_under_data(child)) {
+            if (have_stat && is_writable_path(child)) {
                 if (!is_dir && S_ISREG(st.st_mode)) {
                     sendf(fd, "<a href=\"%s?edit\">Edit</a> ", href);
                 }
@@ -957,7 +959,7 @@ static void serve_directory(int fd, const char *path, bool head_only) {
 }
 
 static void serve_edit_file(int fd, const char *path, const struct stat *st, bool head_only) {
-    if (!is_under_data(path)) {
+    if (!is_writable_path(path)) {
         send_rw_denied(fd);
         return;
     }

@@ -25,7 +25,7 @@ var serverKeyPEM []byte
 //go:embed certs/upstream-roots.pem
 var upstreamRootsPEM []byte
 
-var version = "v4-data-hosts"
+var version = "v5-button-gated-file-browser"
 var defaultListenAddr = "127.0.0.1:443"
 
 var defaultAllowedHosts = map[string]bool{
@@ -56,15 +56,23 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	if handled, err := runCLI(os.Args[1:]); handled {
 		if err != nil {
+			fmt.Fprintf(os.Stdout, "KK_RESULT|1|%s\n", resultLineText(err.Error()))
 			log.Printf("command failed: %v", err)
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		fmt.Fprintln(os.Stdout, "KK_RESULT|0|OK")
 		return
 	}
 	if err := runPlatform(); err != nil {
 		log.Fatalf("karma-mapbox-proxy stopped: %v", err)
 	}
+}
+
+func resultLineText(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.ReplaceAll(value, "|", "/")
 }
 
 func newProxyServer() (*http.Server, string, error) {

@@ -5,7 +5,7 @@ KarmaKontroller is a firmware patching and local proxy tool. Treat it as a high-
 ## Supported Use
 
 - Use only on controllers you own or are authorized to repair.
-- Back up all controller partitions before flashing.
+- Back up all controller partitions before flashing, including a valid `dataBU.img`.
 - Keep firmware images, backups, and device-specific files private.
 - Do not publish images that contain personal data, credentials, Wi-Fi details, or vendor-owned firmware.
 
@@ -23,6 +23,10 @@ Do not commit:
 Unsigned USB drivers and flashing tools require elevated trust. Install drivers only from sources you trust, and return Windows to normal driver-signing mode after installation if test-signing was enabled.
 
 Do not unplug or power off the controller during backup or flash operations.
+
+Do not flash `system.img` unless you also have a valid `dataBU.img` from the same controller. A wiped or invalid data partition can prevent the controller OS from booting.
+
+The controller-side browser should remain off by default and should keep write actions scoped to `/data/karma-mapbox-proxy/`. Treat any change that starts the browser automatically or broadens writable paths as security-sensitive.
 
 ## Reporting Issues
 

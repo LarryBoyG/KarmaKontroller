@@ -200,7 +200,53 @@ func backupControllerToFolder(folder string, partitionNames []string, progress p
 	return nil
 }
 
+func flashSystemImageWithDataBackup(image, dataBackup string, progress patchProgress) error {
+	reportPatchProgress(progress, 0, "Validating data backup")
+	if err := validateDataImage(dataBackup); err != nil {
+		return fmt.Errorf("data backup preflight failed: %w", err)
+	}
+	return flashSystemImage(image, progress)
+}
+
 func flashSystemImage(image string, progress patchProgress) error {
+	reportPatchProgress(progress, 0, "Validating system image")
+	if err := validateSystemImagePath(image); err != nil {
+		return fmt.Errorf("system image preflight failed: %w", err)
+	}
+	return flashPartitionImage("system", image, progress)
+}
+
+func flashDataImage(image string, progress patchProgress) error {
+	reportPatchProgress(progress, 0, "Validating data image")
+	if err := validateDataImage(image); err != nil {
+		return err
+	}
+	return flashPartitionImage("data", image, progress)
+}
+
+func validateDataImage(image string) error {
+	info, err := os.Stat(image)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory, not a data image", image)
+	}
+
+	const expectedDataImageBytes int64 = 0x51bf0000
+	if info.Size() != expectedDataImageBytes {
+		return fmt.Errorf("data image is %d bytes; expected %d bytes for the Karma data partition", info.Size(), expectedDataImageBytes)
+	}
+
+	ext4, err := openExt4ImageReadOnly(image)
+	if err != nil {
+		return fmt.Errorf("data image is not a valid ext4 filesystem: %w", err)
+	}
+	defer ext4.close()
+	return nil
+}
+
+func flashPartitionImage(partition, image string, progress patchProgress) error {
 	updateExe, err := resolveUpdateExe()
 	if err != nil {
 		return err
@@ -209,18 +255,21 @@ func flashSystemImage(image string, progress patchProgress) error {
 	if err != nil {
 		return err
 	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory, not an image file", image)
+	}
 	totalBytes := info.Size()
-	reportPatchProgress(progress, 0, "Starting system flash")
-	if err := runUpdateCommandMonitored(updateExe, []string{"partition", "system", image}, func(pid int) {
+	reportPatchProgress(progress, 1, "Starting "+partition+" flash")
+	if err := runUpdateCommandMonitored(updateExe, []string{"partition", partition, image}, func(pid int) {
 		readBytes, _, ok := processTransferCounts(pid)
 		if !ok {
 			return
 		}
-		reportPatchProgress(progress, percentFromBytes(int64(readBytes), totalBytes, 99), "Flashing system")
+		reportPatchProgress(progress, percentFromBytes(int64(readBytes), totalBytes, 99), "Flashing "+partition)
 	}); err != nil {
 		return err
 	}
-	reportPatchProgress(progress, 100, "Flash complete")
+	reportPatchProgress(progress, 100, partition+" flash complete")
 	return nil
 }
 

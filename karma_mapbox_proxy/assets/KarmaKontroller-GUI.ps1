@@ -9,6 +9,8 @@ $script:OperationRunning = $false
 $script:OutputOffsets = @{}
 $script:LastProgressLog = ""
 $script:LastErrorLine = ""
+$script:LastResultCode = $null
+$script:LastResultMessage = ""
 $script:ActiveLabel = ""
 $script:ActiveArguments = @()
 $script:BackupStartTime = [DateTime]::MinValue
@@ -247,6 +249,73 @@ function Test-BackupComplete($folder) {
     return $true
 }
 
+function Test-Ext4Image($path, [int64]$expectedBytes) {
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return [pscustomobject]@{ Ok = $false; Message = "No image path was selected." }
+    }
+    if (-not (Test-Path -LiteralPath $path)) {
+        return [pscustomobject]@{ Ok = $false; Message = "Image was not found: $path" }
+    }
+    $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+    if ($null -eq $item) {
+        return [pscustomobject]@{ Ok = $false; Message = "Image could not be opened: $path" }
+    }
+    if ($item.PSIsContainer) {
+        return [pscustomobject]@{ Ok = $false; Message = "Selected path is a folder, not an image file." }
+    }
+    if ($expectedBytes -gt 0 -and [int64]$item.Length -ne $expectedBytes) {
+        return [pscustomobject]@{ Ok = $false; Message = ("Image is {0} bytes; expected {1} bytes." -f [int64]$item.Length, $expectedBytes) }
+    }
+    if ([int64]$item.Length -lt 1082) {
+        return [pscustomobject]@{ Ok = $false; Message = "Image is too small to contain an ext4 superblock." }
+    }
+
+    $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        [void]$stream.Seek(1080, [System.IO.SeekOrigin]::Begin)
+        $b1 = $stream.ReadByte()
+        $b2 = $stream.ReadByte()
+        if ($b1 -eq 0x53 -and $b2 -eq 0xEF) {
+            return [pscustomobject]@{ Ok = $true; Message = "Image looks like a raw ext4 filesystem." }
+        }
+        return [pscustomobject]@{ Ok = $false; Message = ("Image does not have a valid ext4 signature at byte 1080. Found 0x{0:X2} 0x{1:X2}." -f $b1, $b2) }
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Message = $_.Exception.Message }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-DataBackupPath {
+    if ([string]::IsNullOrWhiteSpace($backupBox.Text)) {
+        return [System.IO.Path]::Combine($script:DefaultBackupDir, "dataBU.img")
+    }
+    return [System.IO.Path]::Combine($backupBox.Text, "dataBU.img")
+}
+
+function Set-DataRestoreFromBackupFolder {
+    if ($null -eq $script:DataRestoreBox) { return }
+    $path = Get-DataBackupPath
+    if (Test-Path -LiteralPath $path) {
+        $script:DataRestoreBox.Text = $path
+    }
+}
+
+function Require-ValidDataBackupBeforeSystemFlash {
+    $path = Get-DataBackupPath
+    $check = Test-Ext4Image $path ([int64]0x51bf0000)
+    if ($check.Ok) {
+        if ($null -ne $script:DataRestoreBox) {
+            $script:DataRestoreBox.Text = $path
+        }
+        return $true
+    }
+
+    $message = "A valid dataBU.img backup is required before flashing system." + [Environment]::NewLine + [Environment]::NewLine + "Expected:" + [Environment]::NewLine + $path + [Environment]::NewLine + [Environment]::NewLine + $check.Message + [Environment]::NewLine + [Environment]::NewLine + "The controller OS may fail to boot if /data is wiped or invalid. Back up the Data partition first, or select the folder that contains a valid dataBU.img from this controller."
+    [System.Windows.Forms.MessageBox]::Show($message, "KarmaKontroller", "OK", "Warning") | Out-Null
+    return $false
+}
+
 function Quote-ProcessArgument([string]$argument) {
     if ($null -eq $argument -or $argument.Length -eq 0) { return '""' }
     if ($argument -notmatch '[\s"]') { return $argument }
@@ -294,6 +363,13 @@ function Handle-ProcessText($text) {
             if ($script:ActiveLabel -eq "Backup") { continue }
             Set-OperationProgress $percent $status
             Add-ProgressLog $percent $status
+        } elseif ($line -match '^KK_RESULT\|([0-9]+)\|(.*)$') {
+            $script:LastResultCode = [int]$matches[1]
+            $script:LastResultMessage = $matches[2]
+            if ($script:LastResultCode -ne 0 -and -not [string]::IsNullOrWhiteSpace($script:LastResultMessage)) {
+                Add-Log $script:LastResultMessage
+                $script:LastErrorLine = $script:LastResultMessage
+            }
         } else {
             Add-Log $line
             if (-not [string]::IsNullOrWhiteSpace($line) -and -not $line.StartsWith("> ")) {
@@ -330,6 +406,8 @@ function Invoke-Karma($arguments, $label) {
     $script:OperationRunning = $true
     $script:LastProgressLog = ""
     $script:LastErrorLine = ""
+    $script:LastResultCode = $null
+    $script:LastResultMessage = ""
     $script:ActiveLabel = $label
     $script:ActiveArguments = $arguments
     if ($label -eq "Backup") {
@@ -358,6 +436,7 @@ function Invoke-Karma($arguments, $label) {
             Start-Sleep -Milliseconds 200
         }
         $process.WaitForExit()
+        $process.Refresh()
         Read-NewProcessText $stdoutPath
         Read-NewProcessText $stderrPath
         if ($label -eq "Backup" -and $arguments.Count -ge 2) {
@@ -369,16 +448,40 @@ function Invoke-Karma($arguments, $label) {
             $backupLooksComplete = Test-BackupComplete $arguments[1]
         }
 
-        if ($process.ExitCode -eq 0 -or $backupLooksComplete) {
+        $exitCode = $null
+        try {
+            $exitCode = $process.ExitCode
+        } catch {
+            $exitCode = $null
+        }
+
+        if ($null -ne $script:LastResultCode) {
+            $commandSucceeded = ($script:LastResultCode -eq 0)
+        } else {
+            $commandSucceeded = ($null -ne $exitCode -and [int]$exitCode -eq 0)
+        }
+
+        if ($commandSucceeded -or $backupLooksComplete) {
             Set-OperationProgress 100 "$label complete"
             $script:LastRunOK = $true
-            if ($process.ExitCode -ne 0 -and $backupLooksComplete) {
-                Add-Log "Backup files match the expected partition sizes, so this backup is being treated as complete even though the helper process returned exit code $($process.ExitCode)."
+            if (-not $commandSucceeded -and $backupLooksComplete) {
+                if ($null -eq $exitCode) {
+                    Add-Log "Backup files match the expected partition sizes, so this backup is being treated as complete even though the helper process did not return a readable exit code."
+                } else {
+                    Add-Log "Backup files match the expected partition sizes, so this backup is being treated as complete even though the helper process returned exit code $exitCode."
+                }
             }
             Add-Log "$label complete."
         } else {
             $script:StatusLabel.Text = "$label failed"
-            Add-Log "$label failed with exit code $($process.ExitCode)."
+            if ($null -ne $script:LastResultCode) {
+                $exitText = [string]$script:LastResultCode
+            } elseif ($null -ne $exitCode) {
+                $exitText = [string]$exitCode
+            } else {
+                $exitText = "unknown"
+            }
+            Add-Log "$label failed with exit code $exitText."
             $message = "$label failed. Check the log in this window."
             if (-not [string]::IsNullOrWhiteSpace($script:LastErrorLine)) {
                 $message = "$label failed." + [Environment]::NewLine + [Environment]::NewLine + $script:LastErrorLine
@@ -439,12 +542,42 @@ function Show-FlashConfirmation($imagePath) {
     return $result -eq [System.Windows.Forms.DialogResult]::OK
 }
 
+function Show-DataRestoreConfirmation($imagePath) {
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = "Confirm Data Restore"
+    $dialog.StartPosition = "CenterParent"
+    $dialog.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dialog.MaximizeBox = $false
+    $dialog.MinimizeBox = $false
+    $dialog.ClientSize = New-Object System.Drawing.Size(580, 292)
+    Set-WindowIcon $dialog
+
+    $title = New-Label "Restore controller data partition?" 18 16 540 26
+    $title.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+
+    $message = New-Label ("Restoring data rewrites the controller /data partition." + [Environment]::NewLine + [Environment]::NewLine + "This can recover a controller that boots to a black screen after /data was wiped, but it also replaces current controller settings and pairing data." + [Environment]::NewLine + [Environment]::NewLine + "Use a valid dataBU.img from this same controller. Keep USB and power connected until the restore completes.") 20 54 540 132
+    $image = New-Label $imagePath 20 194 540 34
+
+    $continue = New-Button "Continue" 370 248 90
+    $cancel = New-Button "Cancel" 470 248 90
+    $continue.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dialog.AcceptButton = $cancel
+    $dialog.CancelButton = $cancel
+    $dialog.Controls.AddRange(@($title, $message, $image, $continue, $cancel))
+    $dialog.Add_Shown({ $cancel.Focus() })
+
+    $result = $dialog.ShowDialog($script:Form)
+    $dialog.Dispose()
+    return $result -eq [System.Windows.Forms.DialogResult]::OK
+}
+
 $form = New-Object System.Windows.Forms.Form
 $script:Form = $form
 $form.Text = "KarmaKontroller"
 $form.StartPosition = "CenterScreen"
-$form.Size = New-Object System.Drawing.Size(760, 760)
-$form.MinimumSize = New-Object System.Drawing.Size(760, 760)
+$form.Size = New-Object System.Drawing.Size(760, 860)
+$form.MinimumSize = New-Object System.Drawing.Size(760, 860)
 Set-WindowIcon $form
 
 $title = New-Label "KarmaKontroller Image Tools" 18 14 420 28
@@ -471,17 +604,24 @@ $flashBrowse = New-Button "Browse..." 620 248 100
 $flashButton = New-Button "Flash System" 20 286 150
 $form.Controls.AddRange(@($flashLabel, $flashBox, $flashBrowse, $flashButton))
 
-$backupLabel = New-Label "Backup folder" 20 334 180 22
-$backupBox = New-TextBox 20 358 590
+$dataRestoreLabel = New-Label "Data image to restore" 20 334 180 22
+$dataRestoreBox = New-TextBox 20 358 590
+$script:DataRestoreBox = $dataRestoreBox
+$dataRestoreBrowse = New-Button "Browse..." 620 356 100
+$dataRestoreButton = New-Button "Restore Data" 20 394 150
+$form.Controls.AddRange(@($dataRestoreLabel, $dataRestoreBox, $dataRestoreBrowse, $dataRestoreButton))
+
+$backupLabel = New-Label "Backup folder" 20 442 180 22
+$backupBox = New-TextBox 20 466 590
 $backupBox.Text = $script:DefaultBackupDir
-$backupBrowse = New-Button "Browse..." 620 356 100
-$backupPartitionsLabel = New-Label "Backup partitions" 20 394 180 22
-$bootloaderCheck = New-CheckBox "Bootloader" 20 418 110
-$bootCheck = New-CheckBox "Boot" 140 418 80
-$recoveryCheck = New-CheckBox "Recovery" 240 418 100
-$systemCheck = New-CheckBox "System" 360 418 90
-$dataCheck = New-CheckBox "Data" 470 418 80
-$goproCheck = New-CheckBox "GoPro" 570 418 90
+$backupBrowse = New-Button "Browse..." 620 464 100
+$backupPartitionsLabel = New-Label "Backup partitions" 20 502 180 22
+$bootloaderCheck = New-CheckBox "Bootloader" 20 526 110
+$bootCheck = New-CheckBox "Boot" 140 526 80
+$recoveryCheck = New-CheckBox "Recovery" 240 526 100
+$systemCheck = New-CheckBox "System" 360 526 90
+$dataCheck = New-CheckBox "Data" 470 526 80
+$goproCheck = New-CheckBox "GoPro" 570 526 90
 $script:BackupCheckBoxes = [ordered]@{
     bootloader = $bootloaderCheck
     boot = $bootCheck
@@ -490,36 +630,37 @@ $script:BackupCheckBoxes = [ordered]@{
     data = $dataCheck
     gopro = $goproCheck
 }
-$backupButton = New-Button "Backup Controller" 20 456 150
+$backupButton = New-Button "Backup Controller" 20 564 150
 $form.Controls.AddRange(@($backupLabel, $backupBox, $backupBrowse, $backupPartitionsLabel, $bootloaderCheck, $bootCheck, $recoveryCheck, $systemCheck, $dataCheck, $goproCheck, $backupButton))
 
-$statusLabel = New-Label "Ready" 190 462 520 22
+$statusLabel = New-Label "Ready" 190 570 520 22
 $script:StatusLabel = $statusLabel
 $form.Controls.Add($statusLabel)
 
 $progressBar = New-Object System.Windows.Forms.ProgressBar
 $script:ProgressBar = $progressBar
-$progressBar.Location = New-Object System.Drawing.Point(20, 492)
+$progressBar.Location = New-Object System.Drawing.Point(20, 600)
 $progressBar.Size = New-Object System.Drawing.Size(700, 22)
 $progressBar.Minimum = 0
 $progressBar.Maximum = 100
 $progressBar.Value = 0
 $form.Controls.Add($progressBar)
 
-$progressText = New-Label "0% - Ready" 20 520 700 22
+$progressText = New-Label "0% - Ready" 20 628 700 22
 $script:ProgressText = $progressText
 $form.Controls.Add($progressText)
 
 $logBox = New-Object System.Windows.Forms.TextBox
 $script:LogBox = $logBox
-$logBox.Location = New-Object System.Drawing.Point(20, 548)
+$logBox.Location = New-Object System.Drawing.Point(20, 656)
 $logBox.Size = New-Object System.Drawing.Size(700, 150)
 $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
 $form.Controls.Add($logBox)
 
-$script:ActionControls = @($sourceBrowse, $destBrowse, $patchButton, $flashBrowse, $flashButton, $backupBrowse, $bootloaderCheck, $bootCheck, $recoveryCheck, $systemCheck, $dataCheck, $goproCheck, $backupButton)
+$script:ActionControls = @($sourceBrowse, $destBrowse, $patchButton, $flashBrowse, $flashButton, $dataRestoreBrowse, $dataRestoreButton, $backupBrowse, $bootloaderCheck, $bootCheck, $recoveryCheck, $systemCheck, $dataCheck, $goproCheck, $backupButton)
+Set-DataRestoreFromBackupFolder
 
 $form.Add_FormClosing({
     param($sender, $eventArgs)
@@ -588,8 +729,41 @@ $flashButton.Add_Click({
         [System.Windows.Forms.MessageBox]::Show("Select a system image to flash first.", "KarmaKontroller", "OK", "Warning") | Out-Null
         return
     }
+    if (-not (Require-ValidDataBackupBeforeSystemFlash)) { return }
     if (-not (Show-FlashConfirmation $flashBox.Text)) { return }
-    Invoke-Karma -arguments @("--flash-system", $flashBox.Text) -label "Flash"
+    Invoke-Karma -arguments @("--flash-system", $flashBox.Text, (Get-DataBackupPath)) -label "Flash"
+})
+
+$dataRestoreBrowse.Add_Click({
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = "Select data image to restore"
+    $dialog.Filter = "Karma data backup (*.img)|*.img|All files (*.*)|*.*"
+    if (-not [string]::IsNullOrWhiteSpace($backupBox.Text) -and (Test-Path -LiteralPath $backupBox.Text)) {
+        $dialog.InitialDirectory = $backupBox.Text
+    } else {
+        $dialog.InitialDirectory = $script:DefaultBackupDir
+    }
+    if (-not [string]::IsNullOrWhiteSpace($dataRestoreBox.Text)) {
+        $dialog.FileName = $dataRestoreBox.Text
+    } else {
+        $candidate = Get-DataBackupPath
+        if (Test-Path -LiteralPath $candidate) {
+            $dialog.FileName = $candidate
+        }
+    }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $dataRestoreBox.Text = $dialog.FileName
+    }
+})
+
+$dataRestoreButton.Add_Click({
+    $check = Test-Ext4Image $dataRestoreBox.Text ([int64]0x51bf0000)
+    if (-not $check.Ok) {
+        [System.Windows.Forms.MessageBox]::Show("Select a valid dataBU.img first." + [Environment]::NewLine + [Environment]::NewLine + $check.Message, "KarmaKontroller", "OK", "Warning") | Out-Null
+        return
+    }
+    if (-not (Show-DataRestoreConfirmation $dataRestoreBox.Text)) { return }
+    Invoke-Karma -arguments @("--flash-data", $dataRestoreBox.Text) -label "Restore Data"
 })
 
 $backupBrowse.Add_Click({
@@ -603,6 +777,7 @@ $backupBrowse.Add_Click({
     }
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $backupBox.Text = $dialog.SelectedPath
+        Set-DataRestoreFromBackupFolder
     }
 })
 
@@ -616,12 +791,19 @@ $backupButton.Add_Click({
         [System.Windows.Forms.MessageBox]::Show("Choose at least one partition to back up.", "KarmaKontroller", "OK", "Warning") | Out-Null
         return
     }
+    if ($selectedNames -notcontains "data") {
+        $dataAnswer = [System.Windows.Forms.MessageBox]::Show("The Data partition is the recovery safety net if the controller resets or boots to a black screen." + [Environment]::NewLine + [Environment]::NewLine + "Backups without Data cannot be used as the required preflight backup before flashing system." + [Environment]::NewLine + [Environment]::NewLine + "Continue without backing up Data?", "KarmaKontroller", "YesNo", "Warning", "Button2")
+        if ($dataAnswer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+    }
     Set-ActiveBackupSteps $selectedNames
     $partitionText = ($selectedNames -join ", ")
     $message = "Back up these controller partitions:" + [Environment]::NewLine + $partitionText + [Environment]::NewLine + [Environment]::NewLine + "Backup folder:" + [Environment]::NewLine + $backupBox.Text + [Environment]::NewLine + [Environment]::NewLine + "Keep the controller connected until this finishes."
     $answer = [System.Windows.Forms.MessageBox]::Show($message, "Confirm Backup", "YesNo", "Warning", "Button2")
     if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     Invoke-Karma -arguments (@("--backup-controller", $backupBox.Text) + $selectedNames) -label "Backup"
+    if ($script:LastRunOK) {
+        Set-DataRestoreFromBackupFolder
+    }
 })
 
 [void]$form.ShowDialog()

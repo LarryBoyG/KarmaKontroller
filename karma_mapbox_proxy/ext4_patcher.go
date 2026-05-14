@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var patchInstallRecoveryWNC = []byte("#!/system/bin/sh\n\n/system/xbin/wncsud --daemon &\n/system/bin/karma-start-mapbox-proxy\n/system/bin/karma-start-file-browser\n")
+var patchInstallRecoveryWNC = []byte("#!/system/bin/sh\n\n/system/xbin/wncsud --daemon &\n/system/bin/karma-start-mapbox-proxy\n/system/bin/karma-start-file-browser &\n")
 
 type patchProgress func(percent int, status string)
 
@@ -34,6 +34,7 @@ func reportPatchProgress(progress patchProgress, percent int, status string) {
 type patchAssets struct {
 	mapboxProxy      []byte
 	fileBrowser      []byte
+	buttonGate       []byte
 	startMapboxProxy []byte
 	startFileBrowser []byte
 	hosts            []byte
@@ -66,6 +67,11 @@ func patchSystemImage(source, dest string, progress patchProgress) error {
 		return fmt.Errorf("source and destination must be different files")
 	}
 
+	reportPatchProgress(progress, 2, "Validating source image")
+	if err := validateSystemImagePath(sourceAbs); err != nil {
+		return err
+	}
+
 	reportPatchProgress(progress, 3, "Copying source image")
 	if err := copyFileWithProgress(sourceAbs, destAbs, func(copied, total int64) {
 		if total <= 0 {
@@ -85,17 +91,8 @@ func patchSystemImage(source, dest string, progress patchProgress) error {
 	defer image.close()
 
 	reportPatchProgress(progress, 55, "Validating system image")
-	required := []string{
-		"/etc/hosts",
-		"/etc/install-recovery-wnc.sh",
-		"/etc/security/cacerts",
-		"/bin",
-		"/chksum_list",
-	}
-	for _, path := range required {
-		if _, err := image.resolve(path); err != nil {
-			return fmt.Errorf("not a compatible Karma system image: %s: %w", path, err)
-		}
+	if err := validateKarmaSystemImage(image); err != nil {
+		return err
 	}
 
 	files := []imagePatchFile{
@@ -121,6 +118,12 @@ func patchSystemImage(source, dest string, progress patchProgress) error {
 			path:       "/bin/karma-file-browser",
 			systemPath: "/system/bin/karma-file-browser",
 			content:    assets.fileBrowser,
+			mode:       0o100755,
+		},
+		{
+			path:       "/bin/karma-button-gate",
+			systemPath: "/system/bin/karma-button-gate",
+			content:    assets.buttonGate,
 			mode:       0o100755,
 		},
 		{
@@ -159,6 +162,34 @@ func patchSystemImage(source, dest string, progress patchProgress) error {
 	return nil
 }
 
+func validateSystemImagePath(path string) error {
+	image, err := openExt4ImageReadOnly(path)
+	if err != nil {
+		return err
+	}
+	defer image.close()
+	return validateKarmaSystemImage(image)
+}
+
+func validateKarmaSystemImage(image *ext4Image) error {
+	required := []string{
+		"/etc/hosts",
+		"/etc/install-recovery-wnc.sh",
+		"/etc/security/cacerts",
+		"/bin",
+		"/chksum_list",
+	}
+	for _, path := range required {
+		if _, err := image.resolve(path); err != nil {
+			return fmt.Errorf("not a compatible Karma system image: %s: %w", path, err)
+		}
+	}
+	if err := image.validatePatchSource(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func loadPatchAssets() (patchAssets, error) {
 	assets := patchAssets{}
 	var err error
@@ -166,6 +197,9 @@ func loadPatchAssets() (patchAssets, error) {
 		return assets, err
 	}
 	if assets.fileBrowser, err = readPatchAsset("karma-file-browser"); err != nil {
+		return assets, err
+	}
+	if assets.buttonGate, err = readPatchAsset("karma-button-gate"); err != nil {
 		return assets, err
 	}
 	if assets.startMapboxProxy, err = readPatchAsset("karma-start-mapbox-proxy"); err != nil {
@@ -208,6 +242,41 @@ func readPatchAsset(name string) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("missing patch asset %q; keep the assets folder next to KarmaKontroller.exe", name)
+}
+
+func (e *ext4Image) validatePatchSource() error {
+	if _, err := e.resolve("/etc/install-recovery.sh"); err == nil {
+		return fmt.Errorf("system image contains /system/etc/install-recovery.sh from an older experimental patch; start from a clean stock system.img")
+	}
+	if _, err := e.resolve("/bin/karma-start-mapbox-proxy-data"); err == nil {
+		return fmt.Errorf("system image contains /system/bin/karma-start-mapbox-proxy-data from an older experimental patch; start from a clean stock system.img")
+	}
+	if _, err := e.resolve("/bin/karma-file-browser"); err == nil {
+		return fmt.Errorf("system image already contains a KarmaKontroller file browser patch; start from a clean stock system.img")
+	}
+	if e.fileContains("/etc/install-recovery-wnc.sh", "karma-start-mapbox-proxy-data") {
+		return fmt.Errorf("system image contains an older experimental install-recovery hook; start from a clean stock system.img")
+	}
+	if e.fileContains("/etc/install-recovery-wnc.sh", "karma-start-file-browser") {
+		return fmt.Errorf("system image contains an older file browser startup hook; start from a clean stock system.img")
+	}
+	if e.fileContains("/etc/dhcpcd/dhcpcd-hooks/95-configured", "karma-start-mapbox-proxy") ||
+		e.fileContains("/etc/dhcpcd/dhcpcd-hooks/95-configured", "karma-mapbox-proxy-dns") {
+		return fmt.Errorf("system image contains an older experimental DHCP hook patch; start from a clean stock system.img")
+	}
+	return nil
+}
+
+func (e *ext4Image) fileContains(path, needle string) bool {
+	ino, err := e.resolve(path)
+	if err != nil {
+		return false
+	}
+	data, err := e.readFile(ino)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), needle)
 }
 
 func copyFileWithProgress(source, dest string, progress func(copied, total int64)) error {
@@ -292,7 +361,15 @@ type ext4Image struct {
 }
 
 func openExt4Image(path string) (*ext4Image, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	return openExt4ImageWithFlag(path, os.O_RDWR)
+}
+
+func openExt4ImageReadOnly(path string) (*ext4Image, error) {
+	return openExt4ImageWithFlag(path, os.O_RDONLY)
+}
+
+func openExt4ImageWithFlag(path string, flag int) (*ext4Image, error) {
+	f, err := os.OpenFile(path, flag, 0)
 	if err != nil {
 		return nil, err
 	}

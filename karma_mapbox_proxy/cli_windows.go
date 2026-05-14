@@ -24,10 +24,20 @@ func runCLI(args []string) (bool, error) {
 		}
 		return true, backupControllerToFolder(args[1], args[2:], cliProgress)
 	case "--flash-system":
-		if len(args) != 2 {
-			return true, fmt.Errorf("usage: KarmaKontroller.exe --flash-system <system.img>")
+		if len(args) != 3 {
+			return true, fmt.Errorf("usage: KarmaKontroller.exe --flash-system <system.img> <dataBU.img>")
 		}
-		return true, flashSystemImage(args[1], cliProgress)
+		return true, flashSystemImageWithDataBackup(args[1], args[2], cliProgress)
+	case "--flash-data":
+		if len(args) != 2 {
+			return true, fmt.Errorf("usage: KarmaKontroller.exe --flash-data <data.img>")
+		}
+		return true, flashDataImage(args[1], cliProgress)
+	case "--validate-data-image":
+		if len(args) != 2 {
+			return true, fmt.Errorf("usage: KarmaKontroller.exe --validate-data-image <data.img>")
+		}
+		return true, validateDataImage(args[1])
 	case "--show-patcher":
 		return true, launchPatchWindow()
 	default:
