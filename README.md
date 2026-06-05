@@ -1,4 +1,5 @@
 # KarmaKontroller
+Be sure to completely read through this before applying the patch!!!
 
 KarmaKontroller is an experimental Windows utility for GoPro Karma Controller owners who need to restore offline map downloads after the original map endpoints stopped working reliably on the controller.
 
