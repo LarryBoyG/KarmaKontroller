@@ -2,6 +2,8 @@
 
 This folder contains files used by the image patcher and Windows GUI.
 
+`WMM.COF` is the NOAA/NCEI WMM2025 coefficient file used to replace the stock controller magnetic model.
+
 The source repository intentionally does not include generated controller-side binaries:
 
 - `karma-mapbox-proxy`

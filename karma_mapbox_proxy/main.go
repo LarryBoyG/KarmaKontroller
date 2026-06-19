@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -25,7 +26,7 @@ var serverKeyPEM []byte
 //go:embed certs/upstream-roots.pem
 var upstreamRootsPEM []byte
 
-var version = "v5-button-gated-file-browser"
+var version = "v7-online-config-public-proxy"
 var defaultListenAddr = "127.0.0.1:443"
 
 var defaultAllowedHosts = map[string]bool{
@@ -49,6 +50,8 @@ var fallbackDNSServers = []string{
 const hostsFile = "/data/karma-mapbox-proxy/hosts.txt"
 const dnsFile = "/data/karma-mapbox-proxy/dns.txt"
 const upstreamFile = "/data/karma-mapbox-proxy/upstream.txt"
+const onlineConfigURLFile = "/data/karma-mapbox-proxy/online-hosts-url.txt"
+const onlineConfigCacheFile = "/data/karma-mapbox-proxy/online-hosts.last"
 const legacyDNSFile = "/data/karma-mapbox-proxy-dns"
 
 func main() {
@@ -87,6 +90,8 @@ func newProxyServer() (*http.Server, string, error) {
 	if !roots.AppendCertsFromPEM(upstreamRootsPEM) {
 		return nil, "", fmt.Errorf("load upstream root certificates")
 	}
+
+	startOnlineConfigRefresher(roots)
 
 	proxy := &proxyHandler{client: buildHTTPClient(roots)}
 	addr := envOrDefault("KARMA_MAPBOX_PROXY_ADDR", defaultListenAddr)
@@ -191,6 +196,9 @@ func buildHTTPClient(roots *x509.CertPool) *http.Client {
 			if upstream := currentUpstreamAddr(); upstream != "" {
 				return dialer.DialContext(ctx, network, upstream)
 			}
+			if upstream := currentHostOverride(host, port); upstream != "" {
+				return dialer.DialContext(ctx, network, upstream)
+			}
 			ips, err := resolver.LookupIPAddr(ctx, host)
 			if err != nil {
 				return nil, err
@@ -223,6 +231,326 @@ func buildHTTPClient(roots *x509.CertPool) *http.Client {
 		},
 	}
 	return &http.Client{Transport: transport, Timeout: 120 * time.Second}
+}
+
+func currentHostOverride(host, port string) string {
+	host = cleanHost(host)
+	overrides, err := readHostOverrides(envOrDefault("KARMA_MAPBOX_HOSTS_FILE", hostsFile))
+	if err != nil {
+		return ""
+	}
+	value := overrides[host]
+	if value == "" {
+		return ""
+	}
+	if !strings.Contains(value, ":") {
+		value = net.JoinHostPort(value, port)
+	}
+	return value
+}
+
+func readHostOverrides(path string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	overrides := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if idx := strings.IndexByte(line, '#'); idx >= 0 {
+			line = line[:idx]
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		target := cleanHost(fields[0])
+		ip := net.ParseIP(target)
+		if ip == nil || ip.IsLoopback() || ip.IsUnspecified() {
+			continue
+		}
+		target = ip.String()
+		for _, field := range fields[1:] {
+			host := cleanHost(field)
+			if host == "" || host == "localhost" || net.ParseIP(host) != nil {
+				continue
+			}
+			overrides[host] = target
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return overrides, nil
+}
+
+func startOnlineConfigRefresher(roots *x509.CertPool) {
+	if onlineConfigURL() == "" {
+		return
+	}
+	go func() {
+		time.Sleep(8 * time.Second)
+		for {
+			if err := refreshOnlineConfig(roots); err != nil {
+				log.Printf("online config refresh failed: %v", err)
+			}
+			time.Sleep(15 * time.Minute)
+		}
+	}()
+}
+
+func onlineConfigURL() string {
+	value := strings.TrimSpace(os.Getenv("KARMA_MAPBOX_ONLINE_CONFIG_URL"))
+	if value == "" {
+		path := envOrDefault("KARMA_MAPBOX_ONLINE_CONFIG_URL_FILE", onlineConfigURLFile)
+		data, err := os.ReadFile(path)
+		if err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if idx := strings.IndexByte(line, '#'); idx >= 0 {
+					line = line[:idx]
+				}
+				value = strings.TrimSpace(line)
+				if value != "" {
+					break
+				}
+			}
+		}
+	}
+	switch strings.ToLower(value) {
+	case "", "none", "off", "disabled":
+		return ""
+	}
+	return value
+}
+
+func refreshOnlineConfig(roots *x509.CertPool) error {
+	url := onlineConfigURL()
+	if url == "" {
+		return nil
+	}
+	client := buildConfigHTTPClient(roots)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "KarmaKontroller/"+version)
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("GET %s returned %s", url, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return err
+	}
+	if len(body) == 64*1024 {
+		return fmt.Errorf("online config is too large")
+	}
+	if err := writeConfigFile(envOrDefault("KARMA_MAPBOX_ONLINE_CONFIG_CACHE_FILE", onlineConfigCacheFile), body); err != nil {
+		log.Printf("online config cache write failed: %v", err)
+	}
+	if err := applyOnlineConfig(body); err != nil {
+		return err
+	}
+	log.Printf("online config refreshed from %s", url)
+	return nil
+}
+
+func buildConfigHTTPClient(roots *x509.CertPool) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var lastErr error
+			for _, dnsServer := range currentDNSServers() {
+				conn, err := dialer.DialContext(ctx, "udp", dnsServer)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			if lastErr == nil {
+				lastErr = fmt.Errorf("no DNS servers configured")
+			}
+			return nil, lastErr
+		},
+	}
+	return &http.Client{
+		Timeout: 45 * time.Second,
+		Transport: &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(address)
+				if err != nil {
+					return nil, err
+				}
+				ips, err := resolver.LookupIPAddr(ctx, host)
+				if err != nil {
+					return nil, err
+				}
+				var lastErr error
+				for _, ip := range ips {
+					if ip.IP.To4() == nil {
+						continue
+					}
+					conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+					if err == nil {
+						return conn, nil
+					}
+					lastErr = err
+				}
+				if lastErr == nil {
+					lastErr = fmt.Errorf("no IPv4 addresses for %s", host)
+				}
+				return nil, lastErr
+			},
+			ForceAttemptHTTP2:     false,
+			TLSHandshakeTimeout:   30 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			TLSClientConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				RootCAs:            roots,
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
+func applyOnlineConfig(data []byte) error {
+	var hostsLines []string
+	var upstreamLines []string
+	var dnsLines []string
+	var bareValues []string
+
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if idx := strings.IndexByte(line, '#'); idx >= 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
+		if line == "" {
+			continue
+		}
+		key, value, ok := splitConfigKV(line)
+		if ok {
+			switch key {
+			case "upstream", "proxy", "agent":
+				if value != "" {
+					upstreamLines = append(upstreamLines, value)
+				}
+				continue
+			case "dns", "nameserver":
+				if value != "" {
+					dnsLines = append(dnsLines, value)
+				}
+				continue
+			case "host", "hosts":
+				if value != "" {
+					hostsLines = append(hostsLines, value)
+				}
+				continue
+			}
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && net.ParseIP(fields[0]) != nil {
+			hostsLines = append(hostsLines, strings.Join(fields, " "))
+			continue
+		}
+		if len(fields) == 1 {
+			bareValues = append(bareValues, fields[0])
+		}
+	}
+
+	if len(upstreamLines) == 0 && len(hostsLines) == 0 && len(dnsLines) == 0 && len(bareValues) == 1 {
+		upstreamLines = append(upstreamLines, bareValues[0])
+	}
+
+	if len(hostsLines) > 0 {
+		content := strings.Join(ensureLocalhostHostLine(hostsLines), "\n") + "\n"
+		path := envOrDefault("KARMA_MAPBOX_HOSTS_FILE", hostsFile)
+		if err := writeConfigFile(path, []byte(content)); err != nil {
+			return err
+		}
+		log.Printf("online config wrote %s", path)
+	}
+	if len(upstreamLines) > 0 {
+		content := strings.Join(upstreamLines, "\n") + "\n"
+		path := envOrDefault("KARMA_MAPBOX_UPSTREAM_FILE", upstreamFile)
+		if err := writeConfigFile(path, []byte(content)); err != nil {
+			return err
+		}
+		log.Printf("online config wrote %s", path)
+	}
+	if len(dnsLines) > 0 {
+		content := strings.Join(dnsLines, "\n") + "\n"
+		path := envOrDefault("KARMA_MAPBOX_DNS_FILE", dnsFile)
+		if err := writeConfigFile(path, []byte(content)); err != nil {
+			return err
+		}
+		log.Printf("online config wrote %s", path)
+	}
+	if len(hostsLines) == 0 && len(upstreamLines) == 0 && len(dnsLines) == 0 {
+		return fmt.Errorf("online config did not contain hosts, upstream, or DNS entries")
+	}
+	return nil
+}
+
+func splitConfigKV(line string) (string, string, bool) {
+	if idx := strings.IndexByte(line, '='); idx >= 0 {
+		key := strings.ToLower(strings.TrimSpace(line[:idx]))
+		value := strings.TrimSpace(line[idx+1:])
+		return key, value, key != ""
+	}
+	fields := strings.Fields(line)
+	if len(fields) >= 2 {
+		key := strings.ToLower(strings.TrimSuffix(fields[0], ":"))
+		switch key {
+		case "upstream", "proxy", "agent", "dns", "nameserver", "host", "hosts":
+			return key, strings.Join(fields[1:], " "), true
+		}
+	}
+	return "", "", false
+}
+
+func ensureLocalhostHostLine(lines []string) []string {
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		ip := net.ParseIP(firstField(fields))
+		if len(fields) >= 2 && ip != nil && ip.IsLoopback() {
+			for _, field := range fields[1:] {
+				if cleanHost(field) == "localhost" {
+					return lines
+				}
+			}
+		}
+	}
+	return append([]string{"127.0.0.1 localhost"}, lines...)
+}
+
+func firstField(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func writeConfigFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func currentDNSServers() []string {

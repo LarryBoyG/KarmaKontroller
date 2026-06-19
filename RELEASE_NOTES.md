@@ -10,6 +10,7 @@ This is the first working preview release of KarmaKontroller, a Windows utility 
 - Added local HTTPS Mapbox compatibility proxy for controller map downloads.
 - Changed the controller file browser to stay off by default and open only when Shutter + Mode are held during boot.
 - Verified the button-gated file browser avoids the controller error triggered by the earlier always-on port `8080` test build.
+- Added WMM2025 magnetic model coefficients to replace the stock WMM-2015 `/system/etc/WMM.COF`.
 - Added controller discovery on the local Wi-Fi network.
 - Added patching GUI for user-provided `system.img` files.
 - Added backup and flash GUI using the Amlogic update tool.
@@ -43,6 +44,10 @@ Write actions in the browser are intentionally limited to `/data/karma-mapbox-pr
 ## Pairing Safety
 
 Earlier experimental images started the controller file browser automatically on Wi-Fi. Testing showed that this could trigger a controller error during normal boot or drone pairing. The current patch leaves the file browser dormant unless the boot-time button combo is held, while the Mapbox proxy continues to start normally for offline map search and downloads.
+
+## Magnetic Model Update
+
+The patcher now replaces `/system/etc/WMM.COF` with the current NOAA/NCEI WMM2025 coefficient file. This keeps the controller's magnetic declination model current through the WMM2025 validity period. It is expected to affect heading/compass-related calculations, not GPS lock or map tile downloads.
 
 ## Safety Notes
 

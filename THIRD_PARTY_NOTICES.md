@@ -70,6 +70,10 @@ The repository contains proxy certificate material used by the local compatibili
 
 Before publishing a public release, decide whether you want a shared trust anchor or a per-build/per-user generated certificate. A shared private key is convenient for testing, but it is not ideal for a security-conscious public release.
 
+## World Magnetic Model
+
+`karma_mapbox_proxy/assets/WMM.COF` contains the WMM2025 coefficient file distributed by NOAA/NCEI for the World Magnetic Model, developed jointly with the British Geological Survey. Keep the source and model version visible in release notes when publishing builds that include it.
+
 ## Trademarks And Services
 
 GoPro, Karma, Mapbox, Amlogic, Microsoft, Windows, and other names are trademarks of their respective owners. This project is independent and unofficial.

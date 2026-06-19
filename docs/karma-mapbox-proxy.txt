@@ -1,0 +1,9 @@
+# KarmaKontroller online proxy config
+#
+# Publish this file with GitHub Pages. Patched controllers can periodically
+# refresh this file and update /data/karma-mapbox-proxy/upstream.txt.
+#
+# This file intentionally contains no private keys, tokens, firmware, or
+# Mapbox credentials.
+
+upstream=karmakontroller.duckdns.org:443

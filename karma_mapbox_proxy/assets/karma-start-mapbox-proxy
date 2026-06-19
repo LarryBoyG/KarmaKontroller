@@ -6,6 +6,7 @@ DATA_DIR=/data/karma-mapbox-proxy
 HOSTS_FILE=${DATA_DIR}/hosts.txt
 DNS_FILE=${DATA_DIR}/dns.txt
 UPSTREAM_FILE=${DATA_DIR}/upstream.txt
+ONLINE_URL_FILE=${DATA_DIR}/online-hosts-url.txt
 
 echo "--- start attempt $(date) ---" >> ${START_LOG}
 
@@ -41,13 +42,18 @@ fi
 
 if [ ! -f ${UPSTREAM_FILE} ]; then
     cat > ${UPSTREAM_FILE} <<'EOF'
-# Optional PC proxy upstream.
-# Leave blank, direct, none, or mapbox to let the controller proxy reach Mapbox itself.
-# To use the Windows PC agent, replace this file with your PC LAN address:
-# YOUR_PC_IP:443
+karmakontroller.duckdns.org:443
 EOF
     chmod 0644 ${UPSTREAM_FILE}
     echo "created default ${UPSTREAM_FILE}" >> ${START_LOG}
+fi
+
+if [ ! -f ${ONLINE_URL_FILE} ]; then
+    cat > ${ONLINE_URL_FILE} <<'EOF'
+https://larryboyg.github.io/KarmaKontroller/karma-mapbox-proxy.txt
+EOF
+    chmod 0644 ${ONLINE_URL_FILE}
+    echo "created default ${ONLINE_URL_FILE}" >> ${START_LOG}
 fi
 
 if [ ! -x /system/bin/karma-mapbox-proxy ]; then
@@ -64,6 +70,7 @@ echo "starting proxy" >> ${START_LOG}
 export KARMA_MAPBOX_HOSTS_FILE=${HOSTS_FILE}
 export KARMA_MAPBOX_DNS_FILE=${DNS_FILE}
 export KARMA_MAPBOX_UPSTREAM_FILE=${UPSTREAM_FILE}
+export KARMA_MAPBOX_ONLINE_CONFIG_URL_FILE=${ONLINE_URL_FILE}
 /system/bin/karma-mapbox-proxy >> ${LOG} 2>&1 &
 sleep 1
 /system/bin/ps | /system/bin/grep karma-mapbox-proxy | /system/bin/grep -v grep >> ${START_LOG} 2>&1

@@ -38,6 +38,7 @@ type patchAssets struct {
 	startMapboxProxy []byte
 	startFileBrowser []byte
 	hosts            []byte
+	wmm              []byte
 	proxyCA          []byte
 }
 
@@ -109,6 +110,12 @@ func patchSystemImage(source, dest string, progress patchProgress) error {
 			mode:       0o100644,
 		},
 		{
+			path:       "/etc/WMM.COF",
+			systemPath: "/system/etc/WMM.COF",
+			content:    assets.wmm,
+			mode:       0o100644,
+		},
+		{
 			path:       "/bin/karma-mapbox-proxy",
 			systemPath: "/system/bin/karma-mapbox-proxy",
 			content:    assets.mapboxProxy,
@@ -174,6 +181,7 @@ func validateSystemImagePath(path string) error {
 func validateKarmaSystemImage(image *ext4Image) error {
 	required := []string{
 		"/etc/hosts",
+		"/etc/WMM.COF",
 		"/etc/install-recovery-wnc.sh",
 		"/etc/security/cacerts",
 		"/bin",
@@ -209,6 +217,9 @@ func loadPatchAssets() (patchAssets, error) {
 		return assets, err
 	}
 	if assets.hosts, err = readPatchAsset("hosts"); err != nil {
+		return assets, err
+	}
+	if assets.wmm, err = readPatchAsset("WMM.COF"); err != nil {
 		return assets, err
 	}
 	if assets.proxyCA, err = readPatchAsset("b60c023d.0"); err != nil {

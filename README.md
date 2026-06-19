@@ -4,7 +4,8 @@ KarmaKontroller is an experimental Windows utility for GoPro Karma Controller ow
 
 It provides:
 
-- A Windows tray agent named `KarmaKontroller` that runs a local HTTPS Mapbox compatibility proxy.
+- A public-proxy friendly controller patch for restoring Mapbox downloads without requiring a same-network PC agent.
+- A Windows tray agent named `KarmaKontroller` that can still run a local HTTPS Mapbox compatibility proxy as a backup path.
 - A patching GUI for user-supplied `system.img` files.
 - Controller backup and flash helpers that call the Amlogic `update.exe` tool.
 - A controller-side data-store path for proxy configuration, so a group release does not need anyone's personal IP address baked into `system.img`.
@@ -26,11 +27,39 @@ KarmaKontroller does not include firmware images. End users must provide their o
 
 The original offline map flow fails because the controller's old Android/Mapbox stack can no longer complete the modern HTTPS/API path cleanly. The patch adds a compatibility layer:
 
-1. `system.img` is patched to install a controller-side Mapbox proxy launcher, button-gated file browser, trusted proxy certificate, and startup hook.
+1. `system.img` is patched to install a controller-side Mapbox proxy launcher, button-gated file browser, trusted proxy certificate, WMM2025 magnetic model coefficients, and startup hook.
 2. `data.img` is used for mutable configuration at `/data/karma-mapbox-proxy/`.
-3. The PC tray agent listens on the local network, usually on port `443`.
-4. The controller reads `/data/karma-mapbox-proxy/upstream.txt` to learn which PC IP/port to use.
-5. Offline map downloads can then flow through the PC proxy without rebuilding `system.img` for each user's IP address.
+3. The controller reads `/data/karma-mapbox-proxy/upstream.txt` to learn which proxy host/port to use.
+4. For the group release, that upstream is `karmakontroller.duckdns.org:443`.
+5. Offline map downloads then flow through the public proxy. The Windows PC agent remains available as a fallback by replacing `upstream.txt` with a same-network PC address.
+
+## Online Config
+
+The GitHub Pages config file lives at:
+
+```text
+docs/karma-mapbox-proxy.txt
+```
+
+Current contents:
+
+```text
+upstream=karmakontroller.duckdns.org:443
+```
+
+If GitHub Pages is enabled with `docs/` as the publishing source, the public URL should be:
+
+```text
+https://larryboyg.github.io/KarmaKontroller/karma-mapbox-proxy.txt
+```
+
+Patched controllers create this file on first boot:
+
+```text
+/data/karma-mapbox-proxy/online-hosts-url.txt
+```
+
+When present, the controller-side proxy periodically refreshes the online config and updates its local `upstream.txt`, `hosts.txt`, or `dns.txt` values. If the online config is missing or unavailable, the default `upstream.txt` still points at `karmakontroller.duckdns.org:443`.
 
 ## Repository Layout
 
@@ -94,9 +123,10 @@ The patched controller expects mutable proxy settings under:
 
 Important files:
 
-- `upstream.txt` - PC proxy address, for example `192.168.1.50:443`.
+- `upstream.txt` - proxy address. Defaults to `karmakontroller.duckdns.org:443`; can also be a same-network PC address such as `192.168.1.50:443`.
 - `hosts.txt` - allowed/rewritten Mapbox host configuration.
 - `dns.txt` - optional DNS override list.
+- `online-hosts-url.txt` - optional GitHub Pages config URL.
 
 This is what keeps the group patch flexible: releases should not hardcode one person's local IP address into `system.img`.
 
@@ -105,6 +135,10 @@ The controller file browser is off by default. Hold the controller's Shutter and
 The controller file browser only allows write, edit, upload, create, and delete actions inside `/data/karma-mapbox-proxy/`. Other `/data` paths can be browsed for diagnostics but are not exposed as writable through the browser.
 
 This button-gated behavior replaced an earlier always-on test build because automatic exposure of the file browser could trigger a controller error during normal boot or drone pairing.
+
+## WMM2025 Magnetic Model
+
+The patcher replaces the stock `/system/etc/WMM.COF` file with NOAA/NCEI WMM2025 coefficients. The stock controller image observed during development contained WMM-2015, which is past its intended validity window. WMM is used for magnetic declination and heading-related calculations; it does not replace GPS data or map data.
 
 ## Driver Notes
 
