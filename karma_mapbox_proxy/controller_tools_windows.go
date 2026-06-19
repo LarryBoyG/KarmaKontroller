@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
-
-	"github.com/getlantern/systray"
 )
 
 const (
@@ -37,113 +35,6 @@ var (
 	closeHandleProc          = kernel32.NewProc("CloseHandle")
 	getProcessIoCountersProc = kernel32.NewProc("GetProcessIoCounters")
 )
-
-func (a *windowsAgent) patchSystemImageFlow() {
-	if !a.beginToolJob("Patch: choosing image") {
-		return
-	}
-
-	source, ok := chooseOpenFile("Select your original system.img", "Android system image (*.img)|*.img|All files (*.*)|*.*", "")
-	if !ok {
-		a.endToolJob("Tools: ready")
-		return
-	}
-
-	defaultDest := patchedImageDefaultPath(source)
-	dest, ok := chooseSaveFile("Save patched system image", "Android system image (*.img)|*.img|All files (*.*)|*.*", defaultDest)
-	if !ok {
-		a.endToolJob("Tools: ready")
-		return
-	}
-
-	a.setToolStatus("Patch: working")
-	err := patchSystemImage(source, dest, func(percent int, status string) {
-		log.Printf("patch system.img: %d%% %s", percent, status)
-		a.setToolStatus(fmt.Sprintf("Patch: %d%% %s", percent, status))
-	})
-	if err != nil {
-		log.Printf("patch system.img failed: %v", err)
-		a.endToolJob("Patch failed")
-		showMessage("KarmaKontroller", "Patch failed:\n\n"+err.Error(), messageBoxIconError)
-		return
-	}
-
-	a.lastPatchedImage = dest
-	a.endToolJob("Patch complete: " + filepath.Base(dest))
-	showMessage("KarmaKontroller", "Patched image created:\n\n"+dest, messageBoxIconInfo)
-
-	if confirmMessage(
-		"Flash Patched Image?",
-		"Flash this patched system image to the controller now?\n\nMake sure the controller is connected in update mode and you have a backup.",
-	) {
-		go a.flashSystemImagePathFlow(dest)
-	}
-}
-
-func (a *windowsAgent) flashSystemImageFlow() {
-	initial := a.lastPatchedImage
-	image, ok := chooseOpenFile("Select patched system.img to flash", "Android system image (*.img)|*.img|All files (*.*)|*.*", initial)
-	if !ok {
-		return
-	}
-	a.flashSystemImagePathFlow(image)
-}
-
-func (a *windowsAgent) flashSystemImagePathFlow(image string) {
-	if !confirmMessage(
-		"Confirm System Flash",
-		"This will flash the controller system partition.\n\nIf the controller is unplugged, loses power, or this program is closed while flashing, the controller may become unrecoverable.\n\nFlashing can take a long time. Only continue if this is your controller and you have a backup.\n\nImage:\n"+image,
-	) {
-		return
-	}
-	if !a.beginToolJob("Flash: running") {
-		return
-	}
-	defer a.endToolJob("Tools: ready")
-
-	if err := flashSystemImage(image, func(percent int, status string) {
-		log.Printf("flash system.img: %d%% %s", percent, status)
-		a.setToolStatus(fmt.Sprintf("Flash: %d%% %s", percent, status))
-	}); err != nil {
-		log.Printf("flash failed: %v", err)
-		a.setToolStatus("Flash failed")
-		showMessage("KarmaKontroller", "Flash failed:\n\n"+err.Error(), messageBoxIconError)
-		return
-	}
-
-	a.setToolStatus("Flash complete")
-	showMessage("KarmaKontroller", "System image flash completed.", messageBoxIconInfo)
-}
-
-func (a *windowsAgent) backupControllerFlow() {
-	folder, ok := chooseFolder("Choose a folder for controller partition backups")
-	if !ok {
-		return
-	}
-	if !confirmMessage(
-		"Backup Controller?",
-		"This will read the controller partitions into:\n\n"+folder+"\n\nKeep the controller connected until all backup files are written.",
-	) {
-		return
-	}
-	if !a.beginToolJob("Backup: running") {
-		return
-	}
-	defer a.endToolJob("Tools: ready")
-
-	if err := backupControllerToFolder(folder, nil, func(percent int, status string) {
-		log.Printf("backup controller: %d%% %s", percent, status)
-		a.setToolStatus(fmt.Sprintf("Backup: %d%% %s", percent, status))
-	}); err != nil {
-		log.Printf("backup failed: %v", err)
-		a.setToolStatus("Backup failed")
-		showMessage("KarmaKontroller", "Backup failed:\n\n"+err.Error(), messageBoxIconError)
-		return
-	}
-
-	a.setToolStatus("Backup complete")
-	showMessage("KarmaKontroller", "Controller backup completed:\n\n"+folder, messageBoxIconInfo)
-}
 
 func backupControllerToFolder(folder string, partitionNames []string, progress patchProgress) error {
 	if err := os.MkdirAll(folder, 0755); err != nil {
@@ -304,7 +195,10 @@ func launchPatchWindow() error {
 		cmd.Stderr = stderr
 	}
 	log.Printf("opening image tools window with %s", scriptPath)
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Wait()
 }
 
 /* GUI script lives in assets/KarmaKontroller-GUI.ps1.
@@ -525,50 +419,6 @@ $backupButton.Add_Click({
 
 [void]$form.ShowDialog()
 */
-
-func (a *windowsAgent) beginToolJob(status string) bool {
-	a.jobMu.Lock()
-	defer a.jobMu.Unlock()
-	if a.jobRunning {
-		showMessage("KarmaKontroller", "Another patch, backup, or flash operation is already running.", messageBoxIconWarning)
-		return false
-	}
-	a.jobRunning = true
-	a.setToolStatus(status)
-	a.setToolItemsEnabled(false)
-	return true
-}
-
-func (a *windowsAgent) endToolJob(status string) {
-	a.jobMu.Lock()
-	defer a.jobMu.Unlock()
-	a.jobRunning = false
-	a.setToolStatus(status)
-	a.setToolItemsEnabled(true)
-}
-
-func (a *windowsAgent) setToolStatus(status string) {
-	if a.toolStatus != nil {
-		if len(status) > 90 {
-			status = status[:87] + "..."
-		}
-		a.toolStatus.SetTitle(status)
-	}
-}
-
-func (a *windowsAgent) setToolItemsEnabled(enabled bool) {
-	items := []*systray.MenuItem{a.patchItem, a.flashItem, a.backupItem}
-	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		if enabled {
-			item.Enable()
-		} else {
-			item.Disable()
-		}
-	}
-}
 
 func patchedImageDefaultPath(source string) string {
 	ext := filepath.Ext(source)

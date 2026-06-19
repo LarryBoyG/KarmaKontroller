@@ -15,7 +15,7 @@ Do not open issues, pull requests, or release assets that include:
 
 Useful contributions include:
 
-- Bug fixes in the Go tray agent, patcher, or GUI wrapper.
+- Bug fixes in the Go image tools, controller/server proxy, patcher, or GUI wrapper.
 - Safer backup/flash validation.
 - Clearer recovery and driver-install documentation.
 - Build scripts that reproduce release packages from source.
@@ -27,6 +27,6 @@ When testing backup or flash behavior, describe:
 
 - Windows version.
 - Controller software version if known.
-- Whether the controller was detected over Wi-Fi, USB update mode, or both.
+- Whether the controller was connected to Wi-Fi for map testing or USB update mode for backup/flash testing.
 - Which partition operation was attempted.
 - Relevant KarmaKontroller log lines, with private IPs or personal paths redacted if needed.

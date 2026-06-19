@@ -15,22 +15,7 @@ It does not license:
 
 ## Go Dependencies
 
-The Go module imports these third-party packages through `go.mod`:
-
-| Component | Version | License found locally |
-| --- | --- | --- |
-| `github.com/getlantern/context` | `v0.0.0-20190109183933-c447772a6520` | Apache-2.0 |
-| `github.com/getlantern/errors` | `v0.0.0-20190325191628-abdb3e3e36f7` | Apache-2.0 |
-| `github.com/getlantern/golog` | `v0.0.0-20190830074920-4ef2e798c2d7` | Apache-2.0 |
-| `github.com/getlantern/hex` | `v0.0.0-20190417191902-c6586a6fe0b7` | BSD-style license; copyright notices include The Go Authors and Brave New Software Project, Inc. |
-| `github.com/getlantern/hidden` | `v0.0.0-20190325191715-f02dbb02be55` | Apache-2.0 |
-| `github.com/getlantern/ops` | `v0.0.0-20190325191751-d70cb0d6f85f` | Apache-2.0 |
-| `github.com/getlantern/systray` | `v1.2.2` | Apache-2.0 |
-| `github.com/go-stack/stack` | `v1.8.0` | MIT |
-| `github.com/oxtoacart/bpool` | `v0.0.0-20190530202638-03653db5a59c` | Apache-2.0 |
-| `golang.org/x/sys` | `v0.1.0` | BSD-3-Clause-style Go license |
-
-When distributing binaries, include the applicable dependency license texts or a generated third-party license bundle.
+The current Go module uses only the Go standard library and does not declare third-party Go module dependencies.
 
 ## Driver Files
 
@@ -66,13 +51,9 @@ These are governed by Microsoft redistributable terms, not the KarmaKontroller l
 
 ## Certificates
 
-The repository contains proxy certificate material used by the local compatibility proxy and public upstream root certificates used for TLS validation.
+The repository contains certificate material used by the controller-side compatibility proxy and the public proxy server.
 
 Before publishing a public release, decide whether you want a shared trust anchor or a per-build/per-user generated certificate. A shared private key is convenient for testing, but it is not ideal for a security-conscious public release.
-
-## World Magnetic Model
-
-`karma_mapbox_proxy/assets/WMM.COF` contains the WMM2025 coefficient file distributed by NOAA/NCEI for the World Magnetic Model, developed jointly with the British Geological Survey. Keep the source and model version visible in release notes when publishing builds that include it.
 
 ## Trademarks And Services
 

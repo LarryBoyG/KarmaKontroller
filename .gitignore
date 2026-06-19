@@ -38,6 +38,7 @@ __pycache__/
 /karma-file-browser-armv7*
 /karma_mapbox_proxy/assets/karma-mapbox-proxy
 /karma_mapbox_proxy/assets/karma-file-browser
+/karma_mapbox_proxy/assets/karma-button-gate
 
 # Third-party or redistribution-sensitive tool bundles.
 # Do not publish these unless you have verified redistribution rights.

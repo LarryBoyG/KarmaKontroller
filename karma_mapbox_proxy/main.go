@@ -26,7 +26,7 @@ var serverKeyPEM []byte
 //go:embed certs/upstream-roots.pem
 var upstreamRootsPEM []byte
 
-var version = "v7-online-config-public-proxy"
+var version = "v8-upstream-dns"
 var defaultListenAddr = "127.0.0.1:443"
 
 var defaultAllowedHosts = map[string]bool{
@@ -194,30 +194,12 @@ func buildHTTPClient(roots *x509.CertPool) *http.Client {
 				return nil, err
 			}
 			if upstream := currentUpstreamAddr(); upstream != "" {
-				return dialer.DialContext(ctx, network, upstream)
+				return dialResolvedIPv4(ctx, dialer, resolver, network, upstream)
 			}
 			if upstream := currentHostOverride(host, port); upstream != "" {
-				return dialer.DialContext(ctx, network, upstream)
+				return dialResolvedIPv4(ctx, dialer, resolver, network, upstream)
 			}
-			ips, err := resolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			var lastErr error
-			for _, ip := range ips {
-				if ip.IP.To4() == nil {
-					continue
-				}
-				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-			}
-			if lastErr == nil {
-				lastErr = fmt.Errorf("no IPv4 addresses for %s", host)
-			}
-			return nil, lastErr
+			return dialResolvedIPv4(ctx, dialer, resolver, network, address)
 		},
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          16,
@@ -231,6 +213,40 @@ func buildHTTPClient(roots *x509.CertPool) *http.Client {
 		},
 	}
 	return &http.Client{Transport: transport, Timeout: 120 * time.Second}
+}
+
+func dialResolvedIPv4(ctx context.Context, dialer *net.Dialer, resolver *net.Resolver, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	host = cleanHost(host)
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.To4() == nil {
+			return nil, fmt.Errorf("no IPv4 address for %s", host)
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	}
+
+	ips, err := resolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, ip := range ips {
+		if ip.IP.To4() == nil {
+			continue
+		}
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no IPv4 addresses for %s", host)
+	}
+	return nil, lastErr
 }
 
 func currentHostOverride(host, port string) string {
@@ -292,12 +308,15 @@ func startOnlineConfigRefresher(roots *x509.CertPool) {
 		return
 	}
 	go func() {
-		time.Sleep(8 * time.Second)
+		delay := 8 * time.Second
 		for {
+			time.Sleep(delay)
 			if err := refreshOnlineConfig(roots); err != nil {
 				log.Printf("online config refresh failed: %v", err)
+				delay = 30 * time.Second
+				continue
 			}
-			time.Sleep(15 * time.Minute)
+			delay = 15 * time.Minute
 		}
 	}()
 }
@@ -386,29 +405,7 @@ func buildConfigHTTPClient(roots *x509.CertPool) *http.Client {
 		Transport: &http.Transport{
 			Proxy: nil,
 			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-				host, port, err := net.SplitHostPort(address)
-				if err != nil {
-					return nil, err
-				}
-				ips, err := resolver.LookupIPAddr(ctx, host)
-				if err != nil {
-					return nil, err
-				}
-				var lastErr error
-				for _, ip := range ips {
-					if ip.IP.To4() == nil {
-						continue
-					}
-					conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
-					if err == nil {
-						return conn, nil
-					}
-					lastErr = err
-				}
-				if lastErr == nil {
-					lastErr = fmt.Errorf("no IPv4 addresses for %s", host)
-				}
-				return nil, lastErr
+				return dialResolvedIPv4(ctx, dialer, resolver, network, address)
 			},
 			ForceAttemptHTTP2:     false,
 			TLSHandshakeTimeout:   30 * time.Second,

@@ -1,6 +1,6 @@
 # Security Policy
 
-KarmaKontroller is a firmware patching and local proxy tool. Treat it as a high-trust utility.
+KarmaKontroller is a firmware patching tool with controller-side and public-server proxy components. Treat it as a high-trust utility.
 
 ## Supported Use
 
@@ -14,7 +14,7 @@ KarmaKontroller is a firmware patching and local proxy tool. Treat it as a high-
 Do not commit:
 
 - `system.img`, `data.img`, partition backups, or extracted firmware trees.
-- Personal `upstream.txt` values containing your local IP address if they identify your setup.
+- Private server addresses, credentials, API tokens, or configuration values that identify your setup.
 - Private certificate material generated for your own release.
 - Amlogic update tools, vendor DLLs, Microsoft runtime DLLs, or drivers unless redistribution rights are verified.
 
@@ -26,7 +26,7 @@ Do not unplug or power off the controller during backup or flash operations.
 
 Do not flash `system.img` unless you also have a valid `dataBU.img` from the same controller. A wiped or invalid data partition can prevent the controller OS from booting.
 
-The controller-side browser should remain off by default and should keep write actions scoped to `/data/karma-mapbox-proxy/`. Treat any change that starts the browser automatically or broadens writable paths as security-sensitive.
+The controller-side browser should keep write actions scoped to `/data/karma-mapbox-proxy/`. Treat any change that broadens writable paths as security-sensitive.
 
 ## Reporting Issues
 

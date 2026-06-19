@@ -1,16 +1,14 @@
 # KarmaKontroller
-Be sure to completely read through this before applying the patch!!!
 
 KarmaKontroller is an experimental Windows utility for GoPro Karma Controller owners who need to restore offline map downloads after the original map endpoints stopped working reliably on the controller.
 
 It provides:
 
 - A public-proxy friendly controller patch for restoring Mapbox downloads without requiring a same-network PC agent.
-- A Windows tray agent named `KarmaKontroller` that can still run a local HTTPS Mapbox compatibility proxy as a backup path.
-- A patching GUI for user-supplied `system.img` files.
+- A Windows image-tools application for patching user-supplied `system.img` files.
 - Controller backup and flash helpers that call the Amlogic `update.exe` tool.
 - A controller-side data-store path for proxy configuration, so a group release does not need anyone's personal IP address baked into `system.img`.
-- A button-gated controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
+- A small controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
 
 This project is not affiliated with, endorsed by, or supported by GoPro, Mapbox, Amlogic, or any drone manufacturer.
 
@@ -28,11 +26,11 @@ KarmaKontroller does not include firmware images. End users must provide their o
 
 The original offline map flow fails because the controller's old Android/Mapbox stack can no longer complete the modern HTTPS/API path cleanly. The patch adds a compatibility layer:
 
-1. `system.img` is patched to install a controller-side Mapbox proxy launcher, button-gated file browser, trusted proxy certificate, WMM2025 magnetic model coefficients, and startup hook.
+1. `system.img` is patched to install a controller-side Mapbox proxy launcher, file browser, trusted proxy certificate, and startup hook.
 2. `data.img` is used for mutable configuration at `/data/karma-mapbox-proxy/`.
 3. The controller reads `/data/karma-mapbox-proxy/upstream.txt` to learn which proxy host/port to use.
 4. For the group release, that upstream is `karmakontroller.duckdns.org:443`.
-5. Offline map downloads then flow through the public proxy. The Windows PC agent remains available as a fallback by replacing `upstream.txt` with a same-network PC address.
+5. Offline map downloads then flow through the public proxy; the Windows application does not run a local proxy or listen on port `443`.
 
 ## Online Config
 
@@ -48,13 +46,13 @@ Current contents:
 upstream=karmakontroller.duckdns.org:443
 ```
 
-If GitHub Pages is enabled with `docs/` as the publishing source, the public URL should be:
+The published configuration URL is:
 
 ```text
 https://larryboyg.github.io/KarmaKontroller/karma-mapbox-proxy.txt
 ```
 
-Patched controllers create this file on first boot:
+Patched controllers store that URL in:
 
 ```text
 /data/karma-mapbox-proxy/online-hosts-url.txt
@@ -64,15 +62,13 @@ When present, the controller-side proxy periodically refreshes the online config
 
 ## Repository Layout
 
-- `karma_mapbox_proxy/` - Go source for the Windows tray agent, image patcher, proxy, backup/flash wrapper, and GUI launcher.
+- `karma_mapbox_proxy/` - Go source for the Windows image tools, controller/Ubuntu proxy, backup/flash wrapper, and GUI launcher.
 - `karma_mapbox_proxy/assets/` - Runtime files copied into patched images or used by the GUI.
 - `karma_mapbox_proxy/certs/` - Proxy certificates and upstream root certificates used by the compatibility proxy.
 - `installer/` - Windows installer bootstrap and install script.
 - `installer/Driver-Unsigned-Test-Mode-README.txt` - Driver test-signing instructions copied into packaged releases.
 
 Generated release folders, firmware images, extracted filesystems, logs, and third-party binary tool bundles are intentionally ignored by Git.
-
-The source repository also omits generated controller-side binaries such as `karma_mapbox_proxy/assets/karma-mapbox-proxy`, `karma_mapbox_proxy/assets/karma-file-browser`, and `karma_mapbox_proxy/assets/karma-button-gate`. Build or add those only when preparing a release package.
 
 ## Requirements
 
@@ -86,7 +82,7 @@ The source repository also omits generated controller-side binaries such as `kar
 
 ## Building
 
-Build the Windows tray app:
+Build the Windows image-tools app:
 
 ```powershell
 cd karma_mapbox_proxy
@@ -96,7 +92,7 @@ go build -ldflags="-H windowsgui" -o ..\KarmaKontroller.exe .
 For local release packaging, create a `KarmaKontroller-release` folder containing:
 
 - `KarmaKontroller.exe`
-- `assets\`, including freshly built controller-side `karma-mapbox-proxy`, `karma-file-browser`, and `karma-button-gate` binaries
+- `assets\`
 - optional `cmdUpdTool2\` if you are allowed to distribute the update tool bundle
 - `Backup\` and `Patch\` folders
 
@@ -105,14 +101,13 @@ Then rebuild the installer from the files in `installer/`. The current bootstrap
 ## Using The App
 
 1. Start `KarmaKontroller.exe`.
-2. Use the tray menu to start or stop the proxy.
-3. Use `Patch / Flash / Backup...` to open the image tools window.
-4. Patch a user-provided `system.img`.
-5. Back up controller partitions before flashing. Keep `Data` selected.
-6. Flash only after confirming the backup and patched image are correct.
-7. Use `Restore Data` only with a valid `dataBU.img` from the same controller.
+2. The image tools window opens directly. Closing it exits KarmaKontroller.
+3. Patch a user-provided stock `system.img`.
+4. Back up controller partitions before flashing. Keep `Data` selected.
+5. Flash only after confirming the backup and patched image are correct.
+6. Use `Restore Data` only with a valid `dataBU.img` from the same controller.
 
-The tray tooltip/menu reports whether the app can see the controller on the local Wi-Fi network. USB backup and flash are separate: the controller must also be visible to `update.exe` in update mode.
+KarmaKontroller does not run in the notification tray, start a PC-side Mapbox proxy, or scan the local Wi-Fi network. USB backup and flash require the controller to be visible to `update.exe` in update mode.
 
 ## Data Configuration
 
@@ -124,22 +119,14 @@ The patched controller expects mutable proxy settings under:
 
 Important files:
 
-- `upstream.txt` - proxy address. Defaults to `karmakontroller.duckdns.org:443`; can also be a same-network PC address such as `192.168.1.50:443`.
+- `upstream.txt` - public proxy address; defaults to `karmakontroller.duckdns.org:443`.
 - `hosts.txt` - allowed/rewritten Mapbox host configuration.
 - `dns.txt` - optional DNS override list.
-- `online-hosts-url.txt` - optional GitHub Pages config URL.
+- `online-hosts-url.txt` - GitHub Pages configuration URL.
 
 This is what keeps the group patch flexible: releases should not hardcode one person's local IP address into `system.img`.
 
-The controller file browser is off by default. Hold the controller's Shutter and Mode buttons during boot (After the GOPRO Splash screen and the system loading bar appears) to open it for a short maintenance window on port `8080`.
-
 The controller file browser only allows write, edit, upload, create, and delete actions inside `/data/karma-mapbox-proxy/`. Other `/data` paths can be browsed for diagnostics but are not exposed as writable through the browser.
-
-This button-gated behavior replaced an earlier always-on test build because automatic exposure of the file browser could trigger a controller error during normal boot or drone pairing. (Always reboot controller and allow it boot normally after the host edit, Never attempt to pair or fly the drone if the controller is still using port '8080')
-
-## WMM2025 Magnetic Model
-
-The patcher replaces the stock `/system/etc/WMM.COF` file with NOAA/NCEI WMM2025 coefficients. The stock controller image observed during development contained WMM-2015, which is past its intended validity window. WMM is used for magnetic declination and heading-related calculations; it does not replace GPS data or map data.
 
 ## Driver Notes
 
