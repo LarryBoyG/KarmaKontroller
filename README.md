@@ -1,4 +1,5 @@
 # KarmaKontroller
+Be sure to completely read through this before applying the patch!!!
 
 KarmaKontroller is an experimental Windows utility for GoPro Karma Controller owners who need to restore offline map downloads after the original map endpoints stopped working reliably on the controller.
 
@@ -130,11 +131,11 @@ Important files:
 
 This is what keeps the group patch flexible: releases should not hardcode one person's local IP address into `system.img`.
 
-The controller file browser is off by default. Hold the controller's Shutter and Mode buttons during boot to open it for a short maintenance window on port `8080`.
+The controller file browser is off by default. Hold the controller's Shutter and Mode buttons during boot (After the GOPRO Splash screen and the system loading bar appears) to open it for a short maintenance window on port `8080`.
 
 The controller file browser only allows write, edit, upload, create, and delete actions inside `/data/karma-mapbox-proxy/`. Other `/data` paths can be browsed for diagnostics but are not exposed as writable through the browser.
 
-This button-gated behavior replaced an earlier always-on test build because automatic exposure of the file browser could trigger a controller error during normal boot or drone pairing.
+This button-gated behavior replaced an earlier always-on test build because automatic exposure of the file browser could trigger a controller error during normal boot or drone pairing. (Always reboot controller and allow it boot normally after the host edit, Never attempt to pair or fly the drone if the controller is still using port '8080')
 
 ## WMM2025 Magnetic Model
 
