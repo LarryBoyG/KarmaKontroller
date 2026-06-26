@@ -39,6 +39,20 @@ if (!(Test-Path $patchAssets)) {
     throw "Patch assets folder not found: $patchAssets"
 }
 
+$requiredDriverFiles = @(
+    'KarmaWinUSB.inf',
+    'karma-winusb-driver.exe',
+    'libwdi.dll',
+    'libwdi-COPYING-LGPL.txt',
+    'libwdi-SOURCE.txt'
+)
+foreach ($driverFile in $requiredDriverFiles) {
+    $driverPath = Join-Path $root "drivers\$driverFile"
+    if (!(Test-Path $driverPath)) {
+        throw "Required driver package file not found: $driverPath"
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'drivers') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'assets') | Out-Null
@@ -50,7 +64,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Copy-Item -Force $backendExe (Join-Path $outDir 'KarmaWinUSB.exe')
 Copy-Item -Force $patchToolExe (Join-Path $outDir 'KarmaKontrollerPatchTool.exe')
-Copy-Item -Force (Join-Path $root 'drivers\KarmaWinUSB.inf') (Join-Path $outDir 'drivers\KarmaWinUSB.inf')
+Copy-Item -Force (Join-Path $root 'drivers\*') (Join-Path $outDir 'drivers')
 Copy-Item -Force (Join-Path $patchAssets '*') (Join-Path $outDir 'assets')
 if (Test-Path $icon) {
     Copy-Item -Force $icon (Join-Path $outDir 'karma_k.ico')

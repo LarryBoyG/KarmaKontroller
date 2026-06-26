@@ -78,7 +78,7 @@ Generated release folders, firmware images, extracted filesystems, logs, and thi
 - .NET Framework C# compiler for the current installer bootstrap (`csc.exe`).
 - Go toolchain for building from source.
 - A user-supplied GoPro Karma Controller `system.img`.
-- WinUSB driver binding for `USB\VID_1B8E&PID_C003`. The app can prompt to switch the connected controller to WinUSB.
+- WinUSB driver binding for `USB\VID_1B8E&PID_C003`. The app can reuse an installed libwdi/Zadig WinUSB package or generate one with its bundled libwdi helper when switching drivers.
 
 ## Building
 
@@ -128,7 +128,7 @@ The controller file browser only allows write, edit, upload, create, and delete 
 
 ## Driver Notes
 
-Karma Kontroller 2.1 uses WinUSB for `USB\VID_1B8E&PID_C003`. If the controller appears with another driver, the app prompts before attempting a driver switch. The old WorldCup/libusb path is no longer required for the WinUSB workflow.
+Karma Kontroller 2.1 uses WinUSB for `USB\VID_1B8E&PID_C003`. If the controller appears with another driver, the app prompts before attempting a driver switch. On a fresh Windows install, Karma Kontroller uses its bundled libwdi helper to generate and install a WinUSB driver package after administrator approval. The old WorldCup/libusb path is no longer required for the WinUSB workflow.
 
 ## Licensing
 

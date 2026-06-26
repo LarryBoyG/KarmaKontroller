@@ -15,6 +15,10 @@
 !/KarmaKontroller-Setup-*.exe
 !/KarmaWinUSB.exe
 !/KarmaKontrollerPatchTool.exe
+!/drivers/karma-winusb-driver.exe
+!/drivers/libwdi.dll
+!/KarmaWinUSBApp/drivers/karma-winusb-driver.exe
+!/KarmaWinUSBApp/drivers/libwdi.dll
 
 # Firmware images, backups, and extracted filesystems
 *.img

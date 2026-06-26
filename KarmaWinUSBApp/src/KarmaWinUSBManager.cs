@@ -23,6 +23,11 @@ namespace KarmaWinUSBApp
                 Environment.ExitCode = DriverInstallerCommand.Run(args);
                 return;
             }
+            if (args.Length > 0 && string.Equals(args[0], "--force-libwdi-driver", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.ExitCode = DriverInstallerCommand.RunLibwdi(args);
+                return;
+            }
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -847,9 +852,12 @@ namespace KarmaWinUSBApp
             {
                 string logPath = Path.Combine(Path.GetTempPath(), "karma-winusb-driver-install.log");
                 string infPath = EnsureDriverInf();
+                string libwdiHelperPath = FindLibwdiHelperExe();
                 int exitCode = -1;
                 Exception error = null;
                 DeviceInfo verifiedDevice = null;
+                bool usedPlainBundledFallback = false;
+                bool usedLibwdiHelper = false;
 
                 try
                 {
@@ -858,10 +866,21 @@ namespace KarmaWinUSBApp
                         File.Delete(logPath);
                     }
 
-                    DriverInstallPlan plan = DriverInstallPlan.Create(instanceId, infPath);
+                    DriverInstallPlan plan = DriverInstallPlan.Create(instanceId, infPath, libwdiHelperPath);
+                    usedPlainBundledFallback = plan.IsPlainBundledFallback;
+                    usedLibwdiHelper = plan.Mode == DriverInstallMode.LibwdiHelper;
                     AppendActivity("Selected driver package: " + plan.Description);
 
-                    string args = "--force-driver " + QuoteArg(plan.InfPath) + " " + QuoteArg("USB\\" + VidPid) + " " + QuoteArg(logPath);
+                    string args;
+                    if (plan.Mode == DriverInstallMode.LibwdiHelper)
+                    {
+                        string workDir = Path.Combine(Path.GetTempPath(), "karma-winusb-driver");
+                        args = "--force-libwdi-driver " + QuoteArg(plan.HelperPath) + " " + QuoteArg(workDir) + " " + QuoteArg(logPath);
+                    }
+                    else
+                    {
+                        args = "--force-driver " + QuoteArg(plan.InfPath) + " " + QuoteArg("USB\\" + VidPid) + " " + QuoteArg(logPath);
+                    }
                     var psi = new ProcessStartInfo(Application.ExecutablePath, args);
                     psi.UseShellExecute = true;
                     psi.Verb = "runas";
@@ -924,9 +943,21 @@ namespace KarmaWinUSBApp
                     else
                     {
                         string current = verifiedDevice == null ? "Controller not detected after the driver switch attempt." : verifiedDevice.DriverSummary;
+                        string message =
+                            "Windows still is not reporting WinUSB for this controller.\r\n\r\nCurrent driver:\r\n" + current + "\r\n\r\nThe driver log may have more detail:\r\n" + logPath;
+                        if (usedLibwdiHelper)
+                        {
+                            message +=
+                                "\r\n\r\nKarma Kontroller tried to generate and install a WinUSB driver package with its bundled libwdi helper. Check the driver log above and Windows SetupAPI device log for the exact Windows driver-install reason:\r\nC:\\Windows\\INF\\setupapi.dev.log";
+                        }
+                        else if (usedPlainBundledFallback)
+                        {
+                            message +=
+                                "\r\n\r\nThis fallback uses the plain bundled INF because the libwdi helper was not found. A fresh Windows install may reject that plain INF because it is not a catalog-backed driver package.";
+                        }
                         MessageBox.Show(
                             this,
-                            "Windows still is not reporting WinUSB for this controller.\r\n\r\nCurrent driver:\r\n" + current + "\r\n\r\nThe driver log may have more detail:\r\n" + logPath,
+                            message,
                             "Driver Switch Not Active",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Warning);
@@ -944,6 +975,18 @@ namespace KarmaWinUSBApp
                 throw new FileNotFoundException("Bundled driver INF was not found.", infPath);
             }
             return infPath;
+        }
+
+        private static string FindLibwdiHelperExe()
+        {
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string helperPath = Path.Combine(appDir, "drivers\\karma-winusb-driver.exe");
+            string dllPath = Path.Combine(appDir, "drivers\\libwdi.dll");
+            if (File.Exists(helperPath) && File.Exists(dllPath))
+            {
+                return helperPath;
+            }
+            return null;
         }
 
         private void AskForInitialBackup()
@@ -2058,12 +2101,22 @@ namespace KarmaWinUSBApp
         private delegate void OperationComplete(int exitCode);
     }
 
+    internal enum DriverInstallMode
+    {
+        InstalledInf,
+        LibwdiHelper,
+        PlainBundledInf
+    }
+
     internal sealed class DriverInstallPlan
     {
+        public DriverInstallMode Mode;
         public string InfPath;
+        public string HelperPath;
         public string Description;
+        public bool IsPlainBundledFallback;
 
-        public static DriverInstallPlan Create(string instanceId, string bundledInfPath)
+        public static DriverInstallPlan Create(string instanceId, string bundledInfPath, string libwdiHelperPath)
         {
             DriverCandidate candidate = DriverCandidate.FindInstalledWinUsbCandidate(instanceId);
             if (candidate != null)
@@ -2073,16 +2126,31 @@ namespace KarmaWinUSBApp
                 {
                     return new DriverInstallPlan
                     {
+                        Mode = DriverInstallMode.InstalledInf,
                         InfPath = windowsInfPath,
-                        Description = candidate.DriverName + " (" + candidate.ProviderName + ", " + candidate.ClassName + ")"
+                        Description = candidate.DriverName + " (" + candidate.ProviderName + ", " + candidate.ClassName + ")",
+                        IsPlainBundledFallback = false
                     };
                 }
             }
 
+            if (!string.IsNullOrEmpty(libwdiHelperPath) && File.Exists(libwdiHelperPath))
+            {
+                return new DriverInstallPlan
+                {
+                    Mode = DriverInstallMode.LibwdiHelper,
+                    HelperPath = libwdiHelperPath,
+                    Description = Path.GetFileName(libwdiHelperPath) + " (bundled libwdi WinUSB installer)",
+                    IsPlainBundledFallback = false
+                };
+            }
+
             return new DriverInstallPlan
             {
+                Mode = DriverInstallMode.PlainBundledInf,
                 InfPath = bundledInfPath,
-                Description = Path.GetFileName(bundledInfPath) + " (bundled fallback)"
+                Description = Path.GetFileName(bundledInfPath) + " (bundled fallback)",
+                IsPlainBundledFallback = true
             };
         }
     }
@@ -2202,6 +2270,12 @@ namespace KarmaWinUSBApp
             uint installFlags,
             out bool rebootRequired);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern uint GetShortPathName(
+            string longPath,
+            StringBuilder shortPath,
+            uint bufferLength);
+
         public static int Run(string[] args)
         {
             if (args.Length < 4)
@@ -2225,7 +2299,13 @@ namespace KarmaWinUSBApp
 
                 AppendLog(logPath, "UpdateDriverForPlugAndPlayDevices result: " + ok.ToString());
                 AppendLog(logPath, "Last Win32 error: " + lastError.ToString());
+                AppendLog(logPath, "Win32 message: " + new Win32Exception(lastError).Message);
                 AppendLog(logPath, "Reboot required: " + rebootRequired.ToString());
+                AppendLog(logPath, @"SetupAPI device log: C:\Windows\INF\setupapi.dev.log");
+                if (!ok)
+                {
+                    AppendLog(logPath, "Plain INF note: Windows may reject a bundled INF unless it is packaged with a trusted signed catalog.");
+                }
 
                 return ok ? 0 : (lastError == 0 ? 1 : lastError);
             }
@@ -2233,6 +2313,96 @@ namespace KarmaWinUSBApp
             {
                 AppendLog(logPath, "Driver helper exception: " + ex);
                 return -1;
+            }
+        }
+
+        public static int RunLibwdi(string[] args)
+        {
+            if (args.Length < 4)
+            {
+                return 2;
+            }
+
+            string helperPath = args[1];
+            string workDir = args[2];
+            string logPath = args[3];
+
+            try
+            {
+                AppendLog(logPath, "libwdi driver helper started.");
+                AppendLog(logPath, "Helper: " + helperPath);
+                AppendLog(logPath, "Working directory: " + workDir);
+
+                if (!File.Exists(helperPath))
+                {
+                    AppendLog(logPath, "Helper executable was not found.");
+                    return 3;
+                }
+
+                Directory.CreateDirectory(workDir);
+                string shortHelperPath = GetShortPathOrOriginal(helperPath);
+                string shortWorkDir = GetShortPathOrOriginal(workDir);
+                AppendLog(logPath, "Helper short path: " + shortHelperPath);
+                AppendLog(logPath, "Working directory short path: " + shortWorkDir);
+
+                var psi = new ProcessStartInfo(shortHelperPath, "--dest " + QuoteForProcess(shortWorkDir));
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.CreateNoWindow = true;
+                psi.WorkingDirectory = Path.GetDirectoryName(helperPath);
+
+                using (Process process = Process.Start(psi))
+                {
+                    string stdout = process.StandardOutput.ReadToEnd();
+                    string stderr = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+
+                    AppendMultiline(logPath, "libwdi stdout", stdout);
+                    AppendMultiline(logPath, "libwdi stderr", stderr);
+                    AppendLog(logPath, "libwdi exit code: " + process.ExitCode.ToString());
+                    AppendLog(logPath, @"SetupAPI device log: C:\Windows\INF\setupapi.dev.log");
+                    return process.ExitCode;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog(logPath, "libwdi helper exception: " + ex);
+                return -1;
+            }
+        }
+
+        private static string GetShortPathOrOriginal(string path)
+        {
+            var buffer = new StringBuilder(1024);
+            uint length = GetShortPathName(path, buffer, (uint)buffer.Capacity);
+            if (length > 0 && length < buffer.Capacity)
+            {
+                return buffer.ToString();
+            }
+            return path;
+        }
+
+        private static string QuoteForProcess(string text)
+        {
+            return "\"" + text.Replace("\"", "\\\"") + "\"";
+        }
+
+        private static void AppendMultiline(string logPath, string label, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                AppendLog(logPath, label + ": (empty)");
+                return;
+            }
+
+            using (var reader = new StringReader(text))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    AppendLog(logPath, label + ": " + line);
+                }
             }
         }
 

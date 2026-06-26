@@ -19,6 +19,19 @@ The current Go module uses only the Go standard library and does not declare thi
 
 ## Driver Files
 
+Karma Kontroller 2.1 bundles `libwdi.dll` and a small Karma-specific
+`karma-winusb-driver.exe` helper to generate and install a WinUSB driver package
+for the controller update-mode USB device.
+
+libwdi is distributed under the GNU Lesser General Public License v3.0 or later.
+The bundled binary is dynamically linked and the LGPL text/source pointer are
+included in the application `drivers` folder:
+
+- `drivers\libwdi-COPYING-LGPL.txt`
+- `drivers\libwdi-SOURCE.txt`
+
+Upstream libwdi source: https://github.com/pbatard/libwdi
+
 The WorldCup driver INF used during local testing states:
 
 ```text

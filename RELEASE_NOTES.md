@@ -7,6 +7,8 @@ This release moves Karma Kontroller to a native WinUSB workflow for backup, patc
 - Added the native Windows `Karma Kontroller 2.1` application.
 - Added WinUSB controller detection, identify, partition list, backup, system flash, and data restore workflows.
 - Added an in-app prompt to switch the connected controller to WinUSB when Windows is using another driver.
+- Added a bundled libwdi-based driver helper so fresh Windows installs can switch the controller to WinUSB without opening Zadig manually.
+- Added bundled LGPL notices and source information for the libwdi driver component.
 - Added cleaner backup and flash progress with current partition/status, percent complete, and detailed logs written separately.
 - Added automatic padding for sparse `system.img` files before raw WinUSB flashing.
 - Changed `dataBU.img` from a hard requirement to a recommended safety backup for system-only flashing.

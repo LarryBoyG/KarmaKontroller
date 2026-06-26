@@ -1,0 +1,12 @@
+libwdi.dll
+
+Upstream source: https://github.com/pbatard/libwdi
+Version used: v1.5.1
+License: GNU Lesser General Public License v3.0 or later
+
+Karma Kontroller dynamically loads libwdi.dll through the bundled
+karma-winusb-driver.exe helper to generate and install a WinUSB driver package
+for USB\VID_1B8E&PID_C003.
+
+The LGPL license text is included next to this file as:
+libwdi-COPYING-LGPL.txt
