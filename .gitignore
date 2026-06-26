@@ -10,6 +10,11 @@
 *.sys
 *.cat
 *.zip
+!/KarmaKontroller.exe
+!/KarmaKontroller-Setup.exe
+!/KarmaKontroller-Setup-*.exe
+!/KarmaWinUSB.exe
+!/KarmaKontrollerPatchTool.exe
 
 # Firmware images, backups, and extracted filesystems
 *.img

@@ -1,10 +1,4 @@
-# Optional online config URL for patched Karma controllers.
-#
-# If GitHub Pages is enabled for the docs/ folder on main, this should be:
-#
-# https://larryboyg.github.io/KarmaKontroller/karma-mapbox-proxy.txt
-#
-# Put the final URL into:
-# /data/karma-mapbox-proxy/online-hosts-url.txt
+# Online config URL for patched Karma controllers.
+# Put this URL into /data/karma-mapbox-proxy/online-hosts-url.txt.
 
 https://larryboyg.github.io/KarmaKontroller/karma-mapbox-proxy.txt

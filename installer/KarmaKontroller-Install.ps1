@@ -70,9 +70,12 @@ try {
     if ([string]::IsNullOrWhiteSpace($documents)) {
         $documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
     }
-    $dataRoot = Join-Path $documents "KarmaKontroller"
-    New-Item -ItemType Directory -Path (Join-Path $dataRoot "Backup") -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $dataRoot "Patch") -Force | Out-Null
+    $backupDir = Join-Path $documents "KarmaKontroller Backups"
+    $patchDir = Join-Path $documents "KarmaKontroller Patch"
+    $logsDir = Join-Path $documents "KarmaKontroller Logs"
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $patchDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 
     $wsh = New-Object -ComObject WScript.Shell
     $programs = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonPrograms)
@@ -92,15 +95,7 @@ try {
         $desktopShortcut.Save()
     }
 
-    $driverReadme = Join-Path $installDir "cmdUpdTool2\Drivers\README-Unsigned-Driver-Test-Mode.txt"
-    if (-not (Test-Path -LiteralPath $driverReadme)) {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $driverReadme) -Force | Out-Null
-        "See the KarmaKontroller documentation for unsigned driver test mode instructions." | Set-Content -LiteralPath $driverReadme -Encoding ASCII
-    }
-
-    $backupDir = Join-Path $dataRoot "Backup"
-    $patchDir = Join-Path $dataRoot "Patch"
-    $message = "KarmaKontroller was installed to:`r`n$installDir`r`n`r`nBackup folder:`r`n$backupDir`r`n`r`nPatch folder:`r`n$patchDir"
+    $message = "KarmaKontroller was installed to:`r`n$installDir`r`n`r`nBackup folder:`r`n$backupDir`r`n`r`nPatch folder:`r`n$patchDir`r`n`r`nLog folder:`r`n$logsDir"
     [System.Windows.Forms.MessageBox]::Show($message, "KarmaKontroller Setup", "OK", "Information") | Out-Null
 
     if (-not $NoStart) {

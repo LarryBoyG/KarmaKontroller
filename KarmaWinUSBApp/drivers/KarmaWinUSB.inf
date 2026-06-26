@@ -1,0 +1,37 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=USBDevice
+ClassGuid={88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider=%ProviderName%
+DriverVer=06/26/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceName%=USB_Install, USB\VID_1B8E&PID_C003
+
+[USB_Install]
+Include=winusb.inf
+Needs=WINUSB.NT
+
+[USB_Install.Services]
+Include=winusb.inf
+Needs=WINUSB.NT.Services
+
+[USB_Install.Wdf]
+KmdfService=WINUSB, WinUsb_Install
+
+[WinUsb_Install]
+KmdfLibraryVersion=1.11
+
+[USB_Install.HW]
+AddReg=DeviceInterfaceGUIDs
+
+[DeviceInterfaceGUIDs]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{37CB674F-B014-448B-930B-F86191127103}"
+
+[Strings]
+ProviderName="KarmaKontroller"
+ManufacturerName="KarmaKontroller"
+DeviceName="GoPro Karma Controller Update Mode (WinUSB)"

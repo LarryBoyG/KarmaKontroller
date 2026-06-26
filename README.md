@@ -5,8 +5,8 @@ KarmaKontroller is an experimental Windows utility for GoPro Karma Controller ow
 It provides:
 
 - A public-proxy friendly controller patch for restoring Mapbox downloads without requiring a same-network PC agent.
-- A Windows image-tools application for patching user-supplied `system.img` files.
-- Controller backup and flash helpers that call the Amlogic `update.exe` tool.
+- A native Windows application for controller backup, image patching, system flashing, and data restore.
+- A WinUSB backend for controller backup and flash operations, avoiding the old unsigned WorldCup driver workflow.
 - A controller-side data-store path for proxy configuration, so a group release does not need anyone's personal IP address baked into `system.img`.
 - A small controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
 
@@ -16,9 +16,9 @@ This project is not affiliated with, endorsed by, or supported by GoPro, Mapbox,
 
 This tool patches and flashes controller firmware partitions. A bad image, interrupted flash, dead battery, driver problem, or unplugged USB cable can leave a controller unrecoverable.
 
-Use this only on hardware you own or are authorized to service. Make complete backups before flashing, including `dataBU.img`. Keep the controller powered and connected until operations finish.
+Use this only on hardware you own or are authorized to service. Make complete backups before flashing, including `dataBU.img` when practical. Keep the controller powered and connected until operations finish.
 
-The controller OS depends on a valid `/data` partition. If `/data` is wiped or zeroed, reflashing only `system.img` may still leave the controller stuck at a boot logo or black screen. Current builds require a valid raw ext4 `dataBU.img` backup before system flashing and include a separate Data restore flow for recovery.
+The controller OS depends on a valid `/data` partition. If `/data` is wiped or zeroed, reflashing only `system.img` may still leave the controller stuck at a boot logo or black screen. Current WinUSB builds can flash `system.img` without also flashing Data, but the app still recommends a raw ext4 `dataBU.img` recovery backup before changing System and includes a separate Data restore flow for recovery.
 
 KarmaKontroller does not include firmware images. End users must provide their own controller images.
 
@@ -62,52 +62,50 @@ When present, the controller-side proxy periodically refreshes the online config
 
 ## Repository Layout
 
-- `karma_mapbox_proxy/` - Go source for the Windows image tools, controller/Ubuntu proxy, backup/flash wrapper, and GUI launcher.
+- `KarmaWinUSB/` - WinUSB backend CLI for controller identify, backup, and flash operations.
+- `KarmaWinUSBApp/` - Native Windows Karma Kontroller 2.1 application.
+- `karma_mapbox_proxy/` - Go source for the patch helper, controller/Ubuntu proxy, and legacy image tools.
 - `karma_mapbox_proxy/assets/` - Runtime files copied into patched images or used by the GUI.
 - `karma_mapbox_proxy/certs/` - Proxy certificates and upstream root certificates used by the compatibility proxy.
 - `installer/` - Windows installer bootstrap and install script.
-- `installer/Driver-Unsigned-Test-Mode-README.txt` - Driver test-signing instructions copied into packaged releases.
 
 Generated release folders, firmware images, extracted filesystems, logs, and third-party binary tool bundles are intentionally ignored by Git.
 
 ## Requirements
 
 - Windows 10 or Windows 11.
-- Go toolchain for building from source.
 - PowerShell 5+.
 - .NET Framework C# compiler for the current installer bootstrap (`csc.exe`).
+- Go toolchain for building from source.
 - A user-supplied GoPro Karma Controller `system.img`.
-- The Amlogic update tool bundle for backup/flash operations. Do not redistribute this bundle unless you have verified that you have the right to do so.
-- The WorldCup/libusb driver installed when using USB backup/flash mode.
+- WinUSB driver binding for `USB\VID_1B8E&PID_C003`. The app can prompt to switch the connected controller to WinUSB.
 
 ## Building
 
-Build the Windows image-tools app:
+Build the WinUSB backend and native Windows app:
 
 ```powershell
-cd karma_mapbox_proxy
-go build -ldflags="-H windowsgui" -o ..\KarmaKontroller.exe .
+.\KarmaWinUSBApp\build.ps1
 ```
 
-For local release packaging, create a `KarmaKontroller-release` folder containing:
+Build the installer and release folder:
 
-- `KarmaKontroller.exe`
-- `assets\`
-- optional `cmdUpdTool2\` if you are allowed to distribute the update tool bundle
-- `Backup\` and `Patch\` folders
+```powershell
+.\installer\Build-KarmaKontrollerInstaller.ps1
+```
 
-Then rebuild the installer from the files in `installer/`. The current bootstrap embeds `payload.zip` and `KarmaKontroller-Install.ps1` into `KarmaKontroller-Setup.exe`.
+The installer embeds the app payload and creates `Documents\KarmaKontroller Backups`, `Documents\KarmaKontroller Patch`, and `Documents\KarmaKontroller Logs` during installation.
 
 ## Using The App
 
 1. Start `KarmaKontroller.exe`.
 2. The image tools window opens directly. Closing it exits KarmaKontroller.
 3. Patch a user-provided stock `system.img`.
-4. Back up controller partitions before flashing. Keep `Data` selected.
+4. Back up controller partitions before flashing. A Data backup is strongly recommended.
 5. Flash only after confirming the backup and patched image are correct.
 6. Use `Restore Data` only with a valid `dataBU.img` from the same controller.
 
-KarmaKontroller does not run in the notification tray, start a PC-side Mapbox proxy, or scan the local Wi-Fi network. USB backup and flash require the controller to be visible to `update.exe` in update mode.
+KarmaKontroller does not run in the notification tray, start a PC-side Mapbox proxy, or scan the local Wi-Fi network. USB backup and flash require the controller to be in update mode and visible through WinUSB.
 
 ## Data Configuration
 
@@ -130,13 +128,7 @@ The controller file browser only allows write, edit, upload, create, and delete 
 
 ## Driver Notes
 
-Some Windows systems reject the WorldCup/libusb driver unless test-signing mode or one-boot driver signature enforcement bypass is used. See:
-
-```text
-installer/Driver-Unsigned-Test-Mode-README.txt
-```
-
-Re-enable normal Windows driver signature enforcement after driver installation if you do not need test-signing mode.
+Karma Kontroller 2.1 uses WinUSB for `USB\VID_1B8E&PID_C003`. If the controller appears with another driver, the app prompts before attempting a driver switch. The old WorldCup/libusb path is no longer required for the WinUSB workflow.
 
 ## Licensing
 

@@ -1,0 +1,46 @@
+#!/system/bin/sh
+
+LOG=/data/karma-file-browser.log
+START_LOG=/data/karma-file-browser-start.log
+GATE_LOG=/data/karma-mapbox-proxy/button-gate.log
+DATA_DIR=/data/karma-mapbox-proxy
+WATCH_SECONDS=45
+RUN_SECONDS=300
+
+echo "--- start attempt $(date) ---" >> ${START_LOG}
+
+mkdir -p ${DATA_DIR}
+chmod 0755 ${DATA_DIR}
+
+if [ ! -x /system/bin/karma-file-browser ]; then
+    echo "file browser binary missing or not executable" >> ${START_LOG}
+    exit 1
+fi
+
+if [ ! -x /system/bin/karma-button-gate ]; then
+    echo "button gate binary missing or not executable" >> ${START_LOG}
+    exit 1
+fi
+
+echo "waiting ${WATCH_SECONDS}s for GP_SHUTTER + GP_MODE boot combo" >> ${START_LOG}
+if ! /system/bin/karma-button-gate -seconds ${WATCH_SECONDS} -keys 306,307 >> ${GATE_LOG} 2>&1; then
+    echo "boot combo not detected; file browser remains off" >> ${START_LOG}
+    exit 0
+fi
+
+if /system/bin/ps | /system/bin/grep karma-file-browser | /system/bin/grep -v grep >/dev/null 2>&1; then
+    echo "file browser already running" >> ${START_LOG}
+    exit 0
+fi
+
+echo "boot combo detected; starting file browser on port 8080 for ${RUN_SECONDS}s" >> ${START_LOG}
+/system/bin/karma-file-browser >> ${LOG} 2>&1 &
+BROWSER_PID=$!
+sleep 1
+/system/bin/ps | /system/bin/grep karma-file-browser | /system/bin/grep -v grep >> ${START_LOG} 2>&1
+
+(
+    /system/bin/sleep ${RUN_SECONDS}
+    echo "stopping file browser after ${RUN_SECONDS}s" >> ${START_LOG}
+    /system/xbin/kill ${BROWSER_PID} >/dev/null 2>&1
+) &
