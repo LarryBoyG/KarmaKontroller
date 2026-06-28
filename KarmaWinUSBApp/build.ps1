@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$src = Join-Path $root 'src\KarmaWinUSBManager.cs'
+$srcDir = Join-Path $root 'src'
+$sources = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.cs' | Sort-Object FullName | ForEach-Object { $_.FullName })
 $outDir = Join-Path $root 'bin'
 $out = Join-Path $outDir 'KarmaKontroller.exe'
 $backendRoot = Split-Path -Parent $root
@@ -14,8 +15,8 @@ $license = Join-Path $backendRoot 'LICENSE'
 $thirdPartyNotices = Join-Path $backendRoot 'THIRD_PARTY_NOTICES.md'
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 
-if (!(Test-Path $src)) {
-    throw "Source file not found: $src"
+if ($sources.Count -eq 0) {
+    throw "No C# source files found in: $srcDir"
 }
 
 if (!(Test-Path $csc)) {
@@ -57,7 +58,7 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'drivers') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'assets') | Out-Null
 
-& $csc /nologo /target:winexe /platform:x64 /optimize+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Management.dll "/out:$out" "$src"
+& $csc /nologo /target:winexe /platform:x64 /optimize+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Management.dll "/out:$out" @sources
 if ($LASTEXITCODE -ne 0) {
     throw "C# compiler failed with exit code $LASTEXITCODE"
 }

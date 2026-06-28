@@ -9,6 +9,8 @@ This release moves Karma Kontroller to a native WinUSB workflow for backup, patc
 - Added an in-app prompt to switch the connected controller to WinUSB when Windows is using another driver.
 - Added a bundled libwdi-based driver helper so fresh Windows installs can switch the controller to WinUSB without opening Zadig manually.
 - Added bundled LGPL notices and source information for the libwdi driver component.
+- Added a Browse Partitions tab with local IP detection for the gated controller file browser.
+- Added a temporary localhost WebDAV bridge so the gated file browser can be opened from Windows Explorer while Karma Kontroller is running.
 - Added cleaner backup and flash progress with current partition/status, percent complete, and detailed logs written separately.
 - Added automatic padding for sparse `system.img` files before raw WinUSB flashing.
 - Changed `dataBU.img` from a hard requirement to a recommended safety backup for system-only flashing.

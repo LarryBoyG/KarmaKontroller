@@ -7,6 +7,7 @@ It provides:
 - A public-proxy friendly controller patch for restoring Mapbox downloads without requiring a same-network PC agent.
 - A native Windows application for controller backup, image patching, system flashing, and data restore.
 - A WinUSB backend for controller backup and flash operations, avoiding the old unsigned WorldCup driver workflow.
+- Local network detection for the temporary controller file browser and a built-in Windows Explorer bridge.
 - A controller-side data-store path for proxy configuration, so a group release does not need anyone's personal IP address baked into `system.img`.
 - A small controller-side file browser and proxy helper so `/data/karma-mapbox-proxy/upstream.txt` can be updated without rebuilding a full system image.
 
@@ -104,8 +105,11 @@ The installer embeds the app payload and creates `Documents\KarmaKontroller Back
 4. Back up controller partitions before flashing. A Data backup is strongly recommended.
 5. Flash only after confirming the backup and patched image are correct.
 6. Use `Restore Data` only with a valid `dataBU.img` from the same controller.
+7. Use `Browse Partitions` to detect the gated controller file browser on port `8080`, open it in a web browser, or start the temporary Windows Explorer bridge.
 
-KarmaKontroller does not run in the notification tray, start a PC-side Mapbox proxy, or scan the local Wi-Fi network. USB backup and flash require the controller to be in update mode and visible through WinUSB.
+KarmaKontroller does not run in the notification tray or start a PC-side Mapbox proxy. USB backup and flash require the controller to be in update mode and visible through WinUSB.
+
+The Browse Partitions network scan is user-initiated and only looks for the gated controller file browser on the local subnet. The Explorer bridge listens on localhost and runs only while Karma Kontroller is open.
 
 ## Data Configuration
 

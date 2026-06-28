@@ -20,6 +20,8 @@ Native Windows GUI for GoPro Karma Controller maintenance over WinUSB.
 - Detailed command transcripts saved under `Documents\KarmaKontroller Logs`.
 - System image patching through the bundled `KarmaKontrollerPatchTool.exe`.
 - System flashing and data restore through the WinUSB backend.
+- Browse Partitions tab with local IP detection for the gated controller file browser.
+- Temporary localhost WebDAV bridge for opening the gated controller browser in Windows Explorer.
 - Driver status and device detection without showing backend paths in the main window.
 - Versioned application title bar: `Karma Kontroller 2.1`.
 - Footer buttons for language selection, About, and opening operation logs.
@@ -51,5 +53,6 @@ Output:
 
 - Windows requires administrator approval for driver changes.
 - Fresh Windows installs should use the bundled libwdi helper through the `Switch Driver` button. The plain INF is only a last-resort fallback.
+- The Windows Explorer bridge only runs while Karma Kontroller is open and the controller gated file browser is active on the same local network.
 - Flashing still requires explicit confirmation in the GUI.
 - A valid `dataBU.img` is recommended before system flashing as a recovery backup, but WinUSB system-only flashing can continue without it after confirmation.

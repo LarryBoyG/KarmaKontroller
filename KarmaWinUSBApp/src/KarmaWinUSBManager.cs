@@ -48,6 +48,7 @@ namespace KarmaWinUSBApp
         private Label subtitleLabel;
         private TabPage backupTab;
         private TabPage imageToolsTab;
+        private TabPage browseTab;
         private Label backupFolderLabel;
         private Label backupPartitionsLabel;
         private Label backupNoteLabel;
@@ -59,6 +60,10 @@ namespace KarmaWinUSBApp
         private Label dataBackupLabel;
         private Label dataBackupHelpLabel;
         private Label dataRestoreLabel;
+        private Label fileBrowserUrlLabel;
+        private Label fileBrowserHelpLabel;
+        private Label bridgePathLabel;
+        private Label bridgeHelpLabel;
         private TextBox activityBox;
         private Label controllerValue;
         private Label driverValue;
@@ -71,6 +76,8 @@ namespace KarmaWinUSBApp
         private TextBox expectedCurrentImageBox;
         private TextBox dataBackupBox;
         private TextBox dataRestoreBox;
+        private TextBox fileBrowserUrlBox;
+        private TextBox bridgePathBox;
         private Button refreshButton;
         private Button driverButton;
         private Button identifyButton;
@@ -88,21 +95,25 @@ namespace KarmaWinUSBApp
         private Button expectedClearButton;
         private Button dataBackupBrowseButton;
         private Button dataRestoreBrowseButton;
+        private Button detectFileBrowserButton;
+        private Button openFileBrowserButton;
+        private Button startBridgeButton;
+        private Button openExplorerBridgeButton;
+        private Button stopBridgeButton;
         private Button languageButton;
         private Button aboutButton;
         private Button logsButton;
         private ProgressBar progressBar;
-        private System.Windows.Forms.Timer refreshTimer;
         private readonly Dictionary<string, CheckBox> backupChecks = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
 
         private bool busy;
         private bool askedBackupThisSession;
         private bool autoDriverPromptShown;
-        private bool autoRefreshEnabled = true;
         private int lastActivityProgress = -1;
         private string lastActivityStatus = "";
         private string currentLanguage = "en";
         private DeviceInfo currentDevice;
+        private WebDavBridge webDavBridge;
 
         public MainForm()
         {
@@ -201,8 +212,10 @@ namespace KarmaWinUSBApp
             tabs.Dock = DockStyle.Fill;
             backupTab = BuildBackupTab();
             imageToolsTab = BuildImageTab();
+            browseTab = BuildBrowseTab();
             tabs.Controls.Add(backupTab);
             tabs.Controls.Add(imageToolsTab);
+            tabs.Controls.Add(browseTab);
             main.Controls.Add(tabs, 0, 3);
 
             var progressPanel = new TableLayoutPanel();
@@ -238,18 +251,8 @@ namespace KarmaWinUSBApp
 
             main.Controls.Add(BuildFooter(), 0, 6);
 
-            refreshTimer = new System.Windows.Forms.Timer();
-            refreshTimer.Interval = 3000;
-            refreshTimer.Tick += delegate
-            {
-                if (!busy && autoRefreshEnabled && currentDevice == null)
-                {
-                    RefreshController(false);
-                }
-            };
-            refreshTimer.Start();
-
             Shown += delegate { RefreshController(false); };
+            FormClosing += delegate { StopExplorerBridge(false); };
             ApplyLanguage();
         }
 
@@ -419,6 +422,88 @@ namespace KarmaWinUSBApp
             return tab;
         }
 
+        private TabPage BuildBrowseTab()
+        {
+            var tab = new TabPage("Browse Partitions");
+            var layout = CreateTabLayout(tab, 12);
+
+            fileBrowserUrlLabel = AddFormLabel(layout, "Controller file browser URL", 0);
+            fileBrowserUrlBox = MakePathTextBox();
+            fileBrowserUrlBox.TextChanged += delegate { UpdateButtonState(); };
+            layout.Controls.Add(fileBrowserUrlBox, 0, 1);
+
+            detectFileBrowserButton = MakeTableButton("Detect");
+            detectFileBrowserButton.Click += delegate { DetectFileBrowser(); };
+            layout.Controls.Add(detectFileBrowserButton, 1, 1);
+
+            fileBrowserHelpLabel = new Label();
+            fileBrowserHelpLabel.Text = "Power on the controller with the gated file browser enabled, then detect it on the local network. You can also paste http://controller-ip:8080/ manually.";
+            fileBrowserHelpLabel.AutoSize = true;
+            fileBrowserHelpLabel.MaximumSize = new Size(760, 0);
+            fileBrowserHelpLabel.ForeColor = SystemColors.GrayText;
+            fileBrowserHelpLabel.Margin = new Padding(0, 0, 0, 8);
+            layout.Controls.Add(fileBrowserHelpLabel, 0, 2);
+            layout.SetColumnSpan(fileBrowserHelpLabel, 2);
+
+            var browserButtons = new FlowLayoutPanel();
+            browserButtons.Dock = DockStyle.Fill;
+            browserButtons.AutoSize = true;
+            browserButtons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            browserButtons.WrapContents = true;
+            browserButtons.FlowDirection = FlowDirection.LeftToRight;
+            browserButtons.Margin = new Padding(0, 8, 0, 16);
+
+            openFileBrowserButton = MakeButton("Open Web Browser");
+            openFileBrowserButton.AutoSize = true;
+            openFileBrowserButton.MinimumSize = new Size(160, 34);
+            openFileBrowserButton.Click += delegate { OpenDetectedFileBrowser(); };
+            browserButtons.Controls.Add(openFileBrowserButton);
+            layout.Controls.Add(browserButtons, 0, 3);
+            layout.SetColumnSpan(browserButtons, 2);
+
+            bridgePathLabel = AddFormLabel(layout, "Windows Explorer bridge", 5);
+            bridgePathBox = MakePathTextBox();
+            bridgePathBox.ReadOnly = true;
+            layout.Controls.Add(bridgePathBox, 0, 6);
+
+            startBridgeButton = MakeTableButton("Start Bridge");
+            startBridgeButton.Click += delegate { StartExplorerBridge(); };
+            layout.Controls.Add(startBridgeButton, 1, 6);
+
+            bridgeHelpLabel = new Label();
+            bridgeHelpLabel.Text = "The bridge runs only while Karma Kontroller is open. Explorer connects to localhost, and Karma Kontroller translates Explorer requests to the controller browser.";
+            bridgeHelpLabel.AutoSize = true;
+            bridgeHelpLabel.MaximumSize = new Size(760, 0);
+            bridgeHelpLabel.ForeColor = SystemColors.GrayText;
+            bridgeHelpLabel.Margin = new Padding(0, 0, 0, 8);
+            layout.Controls.Add(bridgeHelpLabel, 0, 7);
+            layout.SetColumnSpan(bridgeHelpLabel, 2);
+
+            var bridgeButtons = new FlowLayoutPanel();
+            bridgeButtons.Dock = DockStyle.Fill;
+            bridgeButtons.AutoSize = true;
+            bridgeButtons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            bridgeButtons.WrapContents = true;
+            bridgeButtons.FlowDirection = FlowDirection.LeftToRight;
+            bridgeButtons.Margin = new Padding(0, 8, 0, 0);
+
+            openExplorerBridgeButton = MakeButton("Open in Explorer");
+            openExplorerBridgeButton.AutoSize = true;
+            openExplorerBridgeButton.MinimumSize = new Size(160, 34);
+            openExplorerBridgeButton.Click += delegate { OpenExplorerBridge(); };
+            bridgeButtons.Controls.Add(openExplorerBridgeButton);
+
+            stopBridgeButton = MakeButton("Stop Bridge");
+            stopBridgeButton.AutoSize = true;
+            stopBridgeButton.MinimumSize = new Size(130, 34);
+            stopBridgeButton.Click += delegate { StopExplorerBridge(true); };
+            bridgeButtons.Controls.Add(stopBridgeButton);
+
+            layout.Controls.Add(bridgeButtons, 0, 8);
+            layout.SetColumnSpan(bridgeButtons, 2);
+            return tab;
+        }
+
         private void AddBackupCheck(FlowLayoutPanel panel, string key, string text)
         {
             var check = new CheckBox();
@@ -572,6 +657,7 @@ namespace KarmaWinUSBApp
 
             backupTab.Text = T("Backup");
             imageToolsTab.Text = T("Image Tools");
+            browseTab.Text = T("Browse Partitions");
 
             refreshButton.Text = T("Refresh");
             driverButton.Text = T("Switch Driver");
@@ -590,6 +676,11 @@ namespace KarmaWinUSBApp
             patchButton.Text = T("Patch Image");
             flashSystemButton.Text = T("Flash System");
             restoreDataButton.Text = T("Restore Data");
+            detectFileBrowserButton.Text = T("Detect");
+            openFileBrowserButton.Text = T("Open Web Browser");
+            startBridgeButton.Text = T("Start Bridge");
+            openExplorerBridgeButton.Text = T("Open In Explorer");
+            stopBridgeButton.Text = T("Stop Bridge");
             languageButton.Text = T("Language");
             aboutButton.Text = T("About");
             logsButton.Text = T("Logs");
@@ -605,6 +696,10 @@ namespace KarmaWinUSBApp
             dataBackupLabel.Text = T("Recommended Data Backup");
             dataBackupHelpLabel.Text = T("Data Backup Help");
             dataRestoreLabel.Text = T("Data Restore");
+            fileBrowserUrlLabel.Text = T("File Browser URL");
+            fileBrowserHelpLabel.Text = T("File Browser Help");
+            bridgePathLabel.Text = T("Explorer Bridge");
+            bridgeHelpLabel.Text = T("Bridge Help");
 
             SetCheckText("bootloader", T("Bootloader"));
             SetCheckText("boot", T("Boot"));
@@ -635,6 +730,7 @@ namespace KarmaWinUSBApp
                 case "Subtitle": return "Herramientas WinUSB para respaldar, parchear, flashear y recuperar el controlador.";
                 case "Backup": return "Respaldo";
                 case "Image Tools": return "Herramientas de imagen";
+                case "Browse Partitions": return "Explorar particiones";
                 case "Refresh": return "Actualizar";
                 case "Switch Driver": return "Cambiar driver";
                 case "Identify": return "Identificar";
@@ -643,6 +739,11 @@ namespace KarmaWinUSBApp
                 case "Browse": return "Buscar";
                 case "Save As": return "Guardar como";
                 case "Clear": return "Borrar";
+                case "Detect": return "Detectar";
+                case "Open Web Browser": return "Abrir navegador";
+                case "Start Bridge": return "Iniciar puente";
+                case "Open In Explorer": return "Abrir en Explorer";
+                case "Stop Bridge": return "Detener puente";
                 case "Backup Controller": return "Respaldar controlador";
                 case "Patch Image": return "Parchear imagen";
                 case "Flash System": return "Flashear System";
@@ -660,6 +761,10 @@ namespace KarmaWinUSBApp
                 case "Recommended Data Backup": return "Respaldo Data recomendado (dataBU.img)";
                 case "Data Backup Help": return "Recomendado antes de flashear, pero no requerido para flasheos WinUSB solo de System. Sirve como copia de recuperación si alguna vez necesita restaurar /data.";
                 case "Data Restore": return "Imagen Data para restaurar";
+                case "File Browser URL": return "URL del explorador del controlador";
+                case "File Browser Help": return "Encienda el controlador con el explorador temporal habilitado y detectelo en la red local. Tambien puede pegar http://ip-del-controlador:8080/ manualmente.";
+                case "Explorer Bridge": return "Puente para Windows Explorer";
+                case "Bridge Help": return "El puente funciona solo mientras Karma Kontroller esta abierto. Explorer se conecta a localhost y Karma Kontroller traduce las solicitudes al explorador del controlador.";
                 case "Choose Language": return "Seleccione idioma";
                 case "Cancel": return "Cancelar";
                 default: return EnglishText(key);
@@ -673,6 +778,7 @@ namespace KarmaWinUSBApp
                 case "Subtitle": return "WinUSB controller tools, image patching, flashing, and recovery backups.";
                 case "Backup": return "Backup";
                 case "Image Tools": return "Image Tools";
+                case "Browse Partitions": return "Browse Partitions";
                 case "Refresh": return "Refresh";
                 case "Switch Driver": return "Switch Driver";
                 case "Identify": return "Identify";
@@ -681,6 +787,11 @@ namespace KarmaWinUSBApp
                 case "Browse": return "Browse";
                 case "Save As": return "Save As";
                 case "Clear": return "Clear";
+                case "Detect": return "Detect";
+                case "Open Web Browser": return "Open Web Browser";
+                case "Start Bridge": return "Start Bridge";
+                case "Open In Explorer": return "Open in Explorer";
+                case "Stop Bridge": return "Stop Bridge";
                 case "Backup Controller": return "Backup Controller";
                 case "Patch Image": return "Patch Image";
                 case "Flash System": return "Flash System";
@@ -698,6 +809,10 @@ namespace KarmaWinUSBApp
                 case "Recommended Data Backup": return "Recommended data backup (dataBU.img)";
                 case "Data Backup Help": return "Recommended before flashing, but not required for WinUSB system-only flashes. It is a recovery safety net if /data ever needs to be restored.";
                 case "Data Restore": return "Data image to restore";
+                case "File Browser URL": return "Controller file browser URL";
+                case "File Browser Help": return "Power on the controller with the gated file browser enabled, then detect it on the local network. You can also paste http://controller-ip:8080/ manually.";
+                case "Explorer Bridge": return "Windows Explorer bridge";
+                case "Bridge Help": return "The bridge runs only while Karma Kontroller is open. Explorer connects to localhost, and Karma Kontroller translates Explorer requests to the controller browser.";
                 case "Bootloader": return "Bootloader";
                 case "Boot": return "Boot";
                 case "Recovery": return "Recovery";
@@ -801,22 +916,171 @@ namespace KarmaWinUSBApp
             currentDevice = device;
             if (device == null)
             {
-                if (userInitiated)
-                {
-                    autoRefreshEnabled = true;
-                }
                 controllerValue.Text = "Not detected. Connect USB, then start controller in update mode.";
                 driverValue.Text = "-";
                 statusValue.Text = "Waiting for controller.";
             }
             else
             {
-                autoRefreshEnabled = false;
                 controllerValue.Text = device.Name + " (" + device.InstanceId + ")";
                 driverValue.Text = device.DriverSummary;
                 statusValue.Text = device.IsWinUsb ? "Controller is ready." : "Driver change recommended.";
             }
 
+            UpdateButtonState();
+        }
+
+        private void DetectFileBrowser()
+        {
+            if (busy)
+            {
+                return;
+            }
+
+            SetBusy(true, "Scanning for controller file browser...", true);
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                FileBrowserEndpoint endpoint = null;
+                Exception error = null;
+                try
+                {
+                    endpoint = FileBrowserDiscovery.Find(delegate(string message) { AppendActivity(message); });
+                }
+                catch (Exception ex)
+                {
+                    error = ex;
+                }
+
+                BeginInvoke(new MethodInvoker(delegate
+                {
+                    if (error != null)
+                    {
+                        AppendActivity("File browser detection failed: " + error.Message);
+                        MessageBox.Show(this, "File browser detection failed:\r\n\r\n" + error.Message, "Detection Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        SetBusy(false, "File browser detection failed.", false);
+                    }
+                    else if (endpoint == null)
+                    {
+                        AppendActivity("No gated file browser was found on the local network.");
+                        MessageBox.Show(this, "No gated file browser was found on the local network.\r\n\r\nMake sure the controller is powered on, connected to the same Wi-Fi, and started with the file browser gate enabled.", "File Browser Not Found", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        SetBusy(false, "File browser not found.", false);
+                    }
+                    else
+                    {
+                        fileBrowserUrlBox.Text = endpoint.Url;
+                        AppendActivity("Controller file browser detected at " + endpoint.Url + " using probe path " + endpoint.ProbePath);
+                        SetBusy(false, "File browser detected.", false);
+                    }
+                    UpdateButtonState();
+                }));
+            });
+        }
+
+        private string CurrentFileBrowserUrl()
+        {
+            string text = fileBrowserUrlBox == null ? "" : fileBrowserUrlBox.Text.Trim();
+            if (text.Length == 0)
+            {
+                return "";
+            }
+            if (!text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                text = "http://" + text;
+            }
+            if (!text.EndsWith("/", StringComparison.Ordinal))
+            {
+                text += "/";
+            }
+            return text;
+        }
+
+        private void OpenDetectedFileBrowser()
+        {
+            string url = CurrentFileBrowserUrl();
+            if (url.Length == 0)
+            {
+                MessageBox.Show(this, "Detect the controller file browser first, or paste its URL.", "File Browser URL Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                Process.Start(url);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not open the file browser:\r\n\r\n" + ex.Message, "Open Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void StartExplorerBridge()
+        {
+            string url = CurrentFileBrowserUrl();
+            if (url.Length == 0)
+            {
+                MessageBox.Show(this, "Detect the controller file browser first, or paste its URL.", "File Browser URL Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                if (webDavBridge != null && webDavBridge.IsRunning)
+                {
+                    return;
+                }
+
+                webDavBridge = new WebDavBridge(url, delegate(string message) { AppendActivity(message); });
+                webDavBridge.Start();
+                bridgePathBox.Text = webDavBridge.ExplorerPath;
+                AppendActivity("Explorer bridge started for " + url + " at " + webDavBridge.ExplorerPath);
+                statusValue.Text = "Explorer bridge running.";
+                UpdateButtonState();
+            }
+            catch (Exception ex)
+            {
+                AppendActivity("Explorer bridge failed: " + ex.Message);
+                MessageBox.Show(this, "Could not start the Explorer bridge:\r\n\r\n" + ex.Message, "Bridge Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                StopExplorerBridge(false);
+            }
+        }
+
+        private void OpenExplorerBridge()
+        {
+            if (webDavBridge == null || !webDavBridge.IsRunning)
+            {
+                StartExplorerBridge();
+            }
+            if (webDavBridge == null || !webDavBridge.IsRunning)
+            {
+                return;
+            }
+
+            try
+            {
+                Process.Start("explorer.exe", webDavBridge.ExplorerPath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not open Windows Explorer:\r\n\r\n" + ex.Message, "Open Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void StopExplorerBridge(bool announce)
+        {
+            if (webDavBridge != null)
+            {
+                webDavBridge.Dispose();
+                webDavBridge = null;
+            }
+            if (bridgePathBox != null)
+            {
+                bridgePathBox.Text = "";
+            }
+            if (announce)
+            {
+                AppendActivity("Explorer bridge stopped.");
+                statusValue.Text = "Explorer bridge stopped.";
+            }
             UpdateButtonState();
         }
 
@@ -1197,6 +1461,7 @@ namespace KarmaWinUSBApp
                 "- WinUSB controller detection and driver switching for USB\\VID_1B8E&PID_C003." + Environment.NewLine +
                 "- Full and selected partition backups without the unsigned WorldCup driver path." + Environment.NewLine +
                 "- Stock system.img patching for the public Mapbox compatibility proxy, online config, trusted certificate, file browser, and startup hooks." + Environment.NewLine +
+                "- Local network detection for the gated controller file browser and a temporary Windows Explorer bridge." + Environment.NewLine +
                 "- Automatic system image padding before raw WinUSB flashing." + Environment.NewLine +
                 "- System partition flashing with post-write verification." + Environment.NewLine +
                 "- Optional expected-current preflight verification when a known matching systemBU.img is supplied." + Environment.NewLine +
@@ -1901,6 +2166,8 @@ namespace KarmaWinUSBApp
             bool patchReady = FindPatchToolExe() != null;
             bool deviceReady = currentDevice != null;
             bool winusbReady = deviceReady && currentDevice.IsWinUsb;
+            bool hasFileBrowserUrl = fileBrowserUrlBox != null && CurrentFileBrowserUrl().Length > 0;
+            bool bridgeRunning = webDavBridge != null && webDavBridge.IsRunning;
 
             refreshButton.Enabled = !busy;
             driverButton.Enabled = !busy && deviceReady && !winusbReady;
@@ -1919,6 +2186,11 @@ namespace KarmaWinUSBApp
             flashSystemButton.Enabled = !busy && backendReady && winusbReady;
             dataRestoreBrowseButton.Enabled = !busy;
             restoreDataButton.Enabled = !busy && backendReady && winusbReady;
+            detectFileBrowserButton.Enabled = !busy;
+            openFileBrowserButton.Enabled = !busy && hasFileBrowserUrl;
+            startBridgeButton.Enabled = !busy && hasFileBrowserUrl && !bridgeRunning;
+            openExplorerBridgeButton.Enabled = !busy && bridgeRunning;
+            stopBridgeButton.Enabled = !busy && bridgeRunning;
             languageButton.Enabled = !busy;
             aboutButton.Enabled = !busy;
             logsButton.Enabled = true;
